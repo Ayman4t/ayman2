@@ -1,0 +1,429 @@
+<!DOCTYPE html>
+<html lang="ar" dir="rtl">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
+<meta name="theme-color" content="#06060e">
+<title>SlingDrop - راجمة الملفات العابرة للشاشات | AymanStack</title>
+<link href="https://fonts.googleapis.com/css2?family=Cairo:wght@400;600;700;900&display=swap" rel="stylesheet">
+<style>
+:root{--bg:#06060e;--cyan:#00f3ff;--violet:#7c3aed;--green:#10b981;--text:#e8f6ff;--muted:#8a94b8;--glass:rgba(14,16,40,.62)}
+*{box-sizing:border-box;margin:0;padding:0;-webkit-tap-highlight-color:transparent}
+html,body{height:100%;overflow:hidden;background:var(--bg);color:var(--text);font-family:'Cairo','Segoe UI',Tahoma,sans-serif;touch-action:none;user-select:none;-webkit-user-select:none}
+body{background-image:linear-gradient(rgba(0,243,255,.05) 1px,transparent 1px),linear-gradient(90deg,rgba(0,243,255,.05) 1px,transparent 1px);background-size:40px 40px;background-position:center}
+body::after{content:"";position:fixed;inset:0;pointer-events:none;background:radial-gradient(ellipse at center,transparent 40%,rgba(6,6,14,.88) 100%)}
+canvas{position:fixed;inset:0;width:100%;height:100%;z-index:1;touch-action:none}
+#flash{position:fixed;inset:0;background:#fff;opacity:0;z-index:40;pointer-events:none}
+.screen{position:fixed;inset:0;z-index:20;display:none;align-items:center;justify-content:center;padding:max(18px,env(safe-area-inset-top)) 18px max(18px,env(safe-area-inset-bottom));background:rgba(6,6,14,.74);backdrop-filter:blur(7px);-webkit-backdrop-filter:blur(7px);overflow-y:auto;touch-action:pan-y}
+.screen.on{display:flex}
+.box{width:100%;max-width:400px;text-align:center;margin:auto}
+h1{font-size:clamp(32px,10vw,46px);font-weight:900;background:linear-gradient(90deg,var(--cyan),var(--violet));-webkit-background-clip:text;background-clip:text;color:transparent;filter:drop-shadow(0 0 18px rgba(124,58,237,.55))}
+.brand{color:var(--green);font-size:13px;margin-top:2px}
+.sub{color:var(--muted);margin:10px 0 24px;line-height:1.8;font-size:15px}
+.btn{display:block;width:100%;font:inherit;font-weight:700;font-size:17px;color:var(--text);background:var(--glass);border:1.5px solid var(--cyan);border-radius:16px;padding:14px;margin-top:14px;cursor:pointer;text-decoration:none;box-shadow:0 0 18px rgba(0,243,255,.25),inset 0 0 14px rgba(0,243,255,.08);transition:transform .15s}
+.btn:active{transform:scale(.97)}
+.btn small{display:block;font-weight:400;font-size:13px;color:var(--muted)}
+.btn.v{border-color:var(--violet);box-shadow:0 0 18px rgba(124,58,237,.35),inset 0 0 14px rgba(124,58,237,.12)}
+.btn.g{border-color:var(--green);box-shadow:0 0 18px rgba(16,185,129,.3),inset 0 0 14px rgba(16,185,129,.08)}
+.btn:disabled{opacity:.35;cursor:not-allowed}
+.code{font-size:58px;font-weight:900;letter-spacing:14px;padding-inline-start:14px;color:var(--cyan);text-shadow:0 0 22px var(--cyan);direction:ltr}
+.label{color:var(--muted);font-size:14px}
+input,textarea{width:100%;font:inherit;color:var(--text);background:rgba(10,12,32,.8);border:1.5px solid rgba(124,58,237,.6);border-radius:14px;padding:12px 14px;font-size:16px;outline:none;margin-top:10px;user-select:text;-webkit-user-select:text;text-align:start}
+textarea{min-height:130px;resize:none}
+input:focus,textarea:focus{border-color:var(--cyan);box-shadow:0 0 16px rgba(0,243,255,.35)}
+input.num{font-size:34px;letter-spacing:12px;font-weight:700;direction:ltr;text-align:center;border-color:rgba(0,243,255,.6)}
+.status{margin-top:14px;font-size:14px;color:var(--muted);display:flex;gap:8px;align-items:center;justify-content:center}
+.dot{width:10px;height:10px;border-radius:50%;background:#555;flex:none}
+.dot.ok{background:var(--green);box-shadow:0 0 10px var(--green)}
+.dot.wait{background:var(--violet);box-shadow:0 0 10px var(--violet);animation:pulse 1s infinite}
+@keyframes pulse{50%{opacity:.3}}
+.tabs{display:flex;gap:6px;background:var(--glass);border:1px solid rgba(0,243,255,.2);padding:5px;border-radius:16px;margin:16px 0 6px}
+.tab{flex:1;font:inherit;font-weight:600;font-size:14px;color:var(--muted);background:none;border:0;border-radius:12px;padding:10px 4px;cursor:pointer}
+.tab.on{color:#fff;background:linear-gradient(135deg,rgba(0,243,255,.3),rgba(124,58,237,.45));box-shadow:0 0 14px rgba(0,243,255,.3)}
+.pane{display:none;text-align:start}.pane.on{display:block}
+.pick{display:block;margin-top:12px;border:2px dashed rgba(0,243,255,.5);border-radius:18px;padding:22px 12px;text-align:center;cursor:pointer;color:var(--muted);line-height:1.8;background:rgba(0,243,255,.04)}
+.pick b{color:var(--cyan);display:block;font-size:17px}
+#pv{display:none;max-width:100%;max-height:130px;border-radius:12px;margin:10px auto 0}
+#hud{position:fixed;top:max(12px,env(safe-area-inset-top));left:0;right:0;z-index:10;display:none;justify-content:center;gap:8px;pointer-events:none;font-size:14px;color:var(--muted);padding:0 12px;flex-wrap:wrap}
+#hud>*{background:var(--glass);border:1px solid rgba(0,243,255,.25);border-radius:999px;padding:7px 15px;display:inline-flex;gap:8px;align-items:center;font:inherit;color:inherit}
+#hud button{pointer-events:auto;cursor:pointer;border-color:rgba(124,58,237,.6)}
+#card{position:fixed;z-index:35;left:50%;top:50%;width:min(90vw,430px);max-height:88vh;overflow-y:auto;touch-action:pan-y;transform:translate(-50%,-50%) scale(.55);opacity:0;pointer-events:none;padding:24px 20px 20px;text-align:center;border-radius:26px;background:linear-gradient(145deg,rgba(255,255,255,.13),rgba(255,255,255,.03));border:1px solid rgba(255,255,255,.28);backdrop-filter:blur(16px);-webkit-backdrop-filter:blur(16px);box-shadow:0 0 40px rgba(0,243,255,.35),0 0 90px rgba(124,58,237,.35),inset 0 0 30px rgba(255,255,255,.05);transition:opacity .6s,transform .7s cubic-bezier(.2,1.4,.4,1)}
+#card.on{opacity:1;transform:translate(-50%,-50%) scale(1);pointer-events:auto}
+#card .t{color:var(--green);font-size:13px;margin-bottom:12px;text-shadow:0 0 10px var(--green)}
+#card img{max-width:100%;max-height:44vh;border-radius:14px;box-shadow:0 0 24px rgba(0,243,255,.35)}
+#card .big{font-size:24px;font-weight:700;margin:6px 0;word-break:break-word;text-shadow:0 0 14px var(--cyan)}
+#card .ico{font-size:54px;filter:drop-shadow(0 0 14px var(--cyan))}
+#card .meta{color:var(--muted);font-size:14px;margin:4px 0;word-break:break-all}
+#card .txt{background:rgba(0,0,0,.35);border:1px solid rgba(0,243,255,.25);border-radius:14px;padding:12px;text-align:start;line-height:1.8;max-height:34vh;overflow:auto;white-space:pre-wrap;word-break:break-word;user-select:text;-webkit-user-select:text;direction:auto}
+#card .btn{padding:12px;font-size:15px;margin-top:10px}
+#toast{position:fixed;bottom:max(24px,env(safe-area-inset-bottom));left:50%;transform:translateX(-50%) translateY(30px);opacity:0;z-index:50;background:rgba(16,185,129,.9);color:#fff;padding:10px 20px;border-radius:999px;transition:.3s;pointer-events:none;font-weight:600}
+#toast.on{opacity:1;transform:translateX(-50%)}
+</style>
+</head>
+<body>
+<canvas id="cv"></canvas>
+<div id="flash"></div>
+<div id="hud"><span><i class="dot" id="hdot"></i><b id="htxt"></b></span><button id="bBack" style="display:none">تعديل الحمولة</button></div>
+<div id="toast"></div>
+
+<section class="screen on" id="sRole">
+  <div class="box">
+    <h1>SlingDrop</h1>
+    <div class="brand">AymanStack</div>
+    <p class="sub">راجمة الملفات العابرة للشاشات<br>اقذف صورة أو ملفاً أو رابطاً من هاتف إلى هاتف بإصبعك</p>
+    <button class="btn" id="bSend">الهاتف الأول (اليسار - القاذف)<small>تجهّز الحمولة وتقذف الكبسولة</small></button>
+    <button class="btn v" id="bRecv">الهاتف الثاني (اليمين - المستقبِل)<small>تدخل كود الربط وتستلم الحمولة</small></button>
+  </div>
+</section>
+
+<section class="screen" id="sSend">
+  <div class="box">
+    <div class="label">كود الربط</div>
+    <div class="code" id="code">····</div>
+    <p class="sub" style="margin:6px 0 0">أدخل هذا الكود في الهاتف الثاني</p>
+    <div class="status"><i class="dot wait" id="sdot"></i><span id="sst">جارٍ إنشاء الغرفة…</span></div>
+    <button class="btn g" id="bNext" disabled>متابعة وتجهيز الحمولة</button>
+  </div>
+</section>
+
+<section class="screen" id="sBuild">
+  <div class="box">
+    <h1 style="font-size:30px">جهّز الكبسولة</h1>
+    <div class="status" style="margin-top:6px"><i class="dot ok" id="bdot"></i><span id="bst">متصل بالهاتف الثاني</span></div>
+    <div class="tabs">
+      <button class="tab on" data-p="pFile">صورة / ملف</button>
+      <button class="tab" data-p="pLink">رابط / نص</button>
+      <button class="tab" data-p="pCard">كارت شخصي</button>
+    </div>
+    <div class="pane on" id="pFile">
+      <label class="pick" for="fin"><b>اختر صورة أو ملفاً</b>الصور تُضغط تلقائياً لنقل أسرع، والحد الأقصى للملف 6 ميغابايت</label>
+      <input type="file" id="fin" style="display:none">
+      <img id="pv" alt="">
+      <div class="label" id="finfo" style="margin-top:8px;text-align:center"></div>
+    </div>
+    <div class="pane" id="pLink"><textarea id="ltxt" placeholder="الصق رابطاً أو اكتب نصاً طويلاً…"></textarea></div>
+    <div class="pane" id="pCard">
+      <input id="vn" placeholder="الاسم" maxlength="60">
+      <input id="vp" placeholder="رقم الهاتف" inputmode="tel" maxlength="25" style="direction:ltr">
+      <input id="vl" placeholder="رابط يوتيوب / سوشيال ميديا" maxlength="200" style="direction:ltr">
+    </div>
+    <button class="btn g" id="bGo">أطلق الكبسولة</button>
+  </div>
+</section>
+
+<section class="screen" id="sRecv">
+  <div class="box">
+    <h1 style="font-size:32px">الهاتف الثاني</h1>
+    <p class="sub">ضع هذا الهاتف على يمين الهاتف الأول، ثم أدخل الكود الظاهر عليه</p>
+    <input id="room" class="num" inputmode="numeric" maxlength="4" placeholder="0000" autocomplete="off">
+    <div class="status"><i class="dot" id="rdot"></i><span id="rst">أدخل الكود المكوّن من 4 أرقام</span></div>
+    <button class="btn" id="bConn">اتصال</button>
+  </div>
+</section>
+
+<div id="card"></div>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/peerjs/1.5.4/peerjs.min.js"></script>
+<script>
+(()=>{
+const $=id=>document.getElementById(id);
+const cv=$('cv'),ctx=cv.getContext('2d');
+const COLORS=['#00f3ff','#7c3aed','#10b981'];
+const PREFIX='slingdrop-ayman-',MAX=6*1024*1024;
+let W=0,H=0,dpr=1;
+function resize(){dpr=Math.min(devicePixelRatio||1,2);W=innerWidth;H=innerHeight;cv.width=W*dpr;cv.height=H*dpr;ctx.setTransform(dpr,0,0,dpr,0,0)}
+addEventListener('resize',resize);resize();
+
+let role=null,peer=null,conn=null,connected=false;
+let payload=null,meta=null,filePay=null;
+const orb={x:0,y:0,vx:0,vy:0,hw:110,hh:44,vis:false};
+let state='idle',dragging=false,flying=false,ptr={x:0,y:0},sentVisible=false,lastPkt=0,gatherT=0;
+let trail=[],particles=[],rings=[],gather=[],raf=0;
+
+/* ---------- helpers ---------- */
+const show=id=>document.querySelectorAll('.screen').forEach(s=>s.classList.toggle('on',s.id===id));
+function hud(txt,ok,back){$('hud').style.display='flex';$('htxt').textContent=txt;$('hdot').className='dot '+(ok?'ok':'wait');$('bBack').style.display=back?'inline-flex':'none'}
+const send=o=>{if(conn&&conn.open)try{conn.send(o)}catch(e){}};
+const fmt=b=>b<1024?b+' بايت':b<1048576?(b/1024).toFixed(1)+' ك.ب':(b/1048576).toFixed(2)+' م.ب';
+let tt;function toast(s){const t=$('toast');t.textContent=s;t.classList.add('on');clearTimeout(tt);tt=setTimeout(()=>t.classList.remove('on'),2000)}
+function el(tag,cls,txt){const e=document.createElement(tag);if(cls)e.className=cls;if(txt!=null)e.textContent=txt;return e}
+function normUrl(s){s=(s||'').trim();if(/\s/.test(s)||!s)return null;if(/^https?:\/\//i.test(s))return s;if(/^[\w-]+(\.[\w-]+)+(\/\S*)?$/.test(s))return 'https://'+s;return null}
+const isUrl=s=>!!normUrl(s);
+
+/* ---------- roles & pairing ---------- */
+$('bSend').onclick=()=>{role='send';show('sSend');startSender()};
+$('bRecv').onclick=()=>{role='recv';show('sRecv');$('room').focus()};
+
+function startSender(attempt=0){
+  const code=String(Math.floor(1000+Math.random()*9000));
+  $('code').textContent=code;
+  if(typeof Peer==='undefined'){$('sst').textContent='تعذّر تحميل PeerJS، تحقق من الإنترنت';return}
+  peer=new Peer(PREFIX+code);
+  peer.on('open',()=>$('sst').textContent='بانتظار الهاتف الثاني…');
+  peer.on('error',e=>{if(e.type==='unavailable-id'&&attempt<6){peer.destroy();startSender(attempt+1)}else $('sst').textContent='خطأ في الاتصال: '+e.type});
+  peer.on('connection',c=>{
+    conn=c;
+    c.on('open',()=>{connected=true;$('sdot').className='dot ok';$('sst').textContent='تم الربط بنجاح ✓';$('bNext').disabled=false;$('bdot').className='dot ok';$('bst').textContent='متصل بالهاتف الثاني'});
+    c.on('data',d=>{if(d.t==='reset')backToBuilder()});
+    c.on('close',()=>{connected=false;$('sdot').className='dot wait';$('sst').textContent='انقطع الاتصال، بانتظار الهاتف الثاني…';$('bNext').disabled=true;$('bdot').className='dot wait';$('bst').textContent='انقطع الاتصال';if(state==='play')hud('انقطع الاتصال',false,true)});
+  });
+}
+$('bNext').onclick=()=>show('sBuild');
+
+$('bConn').onclick=connectReceiver;
+$('room').addEventListener('keydown',e=>{if(e.key==='Enter')connectReceiver()});
+function connectReceiver(){
+  const code=$('room').value.trim();
+  if(!/^\d{4}$/.test(code)){$('rst').textContent='الكود يجب أن يكون 4 أرقام';return}
+  if(typeof Peer==='undefined'){$('rst').textContent='تعذّر تحميل PeerJS، تحقق من الإنترنت';return}
+  $('rdot').className='dot wait';$('rst').textContent='جارٍ الاتصال…';$('bConn').disabled=true;
+  if(peer)peer.destroy();
+  peer=new Peer();
+  peer.on('open',()=>{
+    conn=peer.connect(PREFIX+code,{reliable:true});
+    conn.on('open',()=>{connected=true;$('rdot').className='dot ok';show('');state='idle';hud('تم الربط ✓ انتظر وصول الكبسولة من الهاتف الأول',true);if(!raf)raf=requestAnimationFrame(loop)});
+    conn.on('data',onRecv);
+    conn.on('close',()=>{connected=false;hud('انقطع الاتصال',false)});
+  });
+  peer.on('error',e=>{$('bConn').disabled=false;$('rdot').className='dot';$('rst').textContent=e.type==='peer-unavailable'?'الكود غير صحيح أو الغرفة غير موجودة':'خطأ في الاتصال: '+e.type});
+}
+
+/* ---------- payload builder ---------- */
+document.querySelectorAll('.tab').forEach(b=>b.onclick=()=>{
+  document.querySelectorAll('.tab').forEach(x=>x.classList.toggle('on',x===b));
+  document.querySelectorAll('.pane').forEach(p=>p.classList.toggle('on',p.id===b.dataset.p));
+});
+$('fin').onchange=async e=>{
+  const f=e.target.files[0];if(!f)return;
+  $('finfo').textContent='جارٍ التجهيز…';filePay=null;$('pv').style.display='none';
+  try{
+    if(f.type.startsWith('image/')){
+      const d=await compress(f);
+      filePay={kind:'image',name:f.name.replace(/\.\w+$/,'')+'.jpg',mime:'image/jpeg',data:d,size:Math.round(d.length*.75)};
+      $('pv').src=d;$('pv').style.display='block';
+    }else{
+      if(f.size>MAX){$('finfo').textContent='الملف كبير جداً (الحد 6 ميغابايت)';return}
+      filePay={kind:'file',name:f.name,mime:f.type||'application/octet-stream',data:await readData(f),size:f.size};
+    }
+    $('finfo').textContent=filePay.name+' — '+fmt(filePay.size);
+  }catch(err){$('finfo').textContent='تعذّر قراءة الملف'}
+};
+const readData=f=>new Promise((res,rej)=>{const r=new FileReader();r.onload=()=>res(r.result);r.onerror=rej;r.readAsDataURL(f)});
+function compress(f){
+  return new Promise((res,rej)=>{
+    const u=URL.createObjectURL(f),im=new Image();
+    im.onload=()=>{
+      const s=Math.min(1,2048/Math.max(im.width,im.height)),c=document.createElement('canvas');
+      c.width=Math.round(im.width*s);c.height=Math.round(im.height*s);
+      const x=c.getContext('2d');x.fillStyle='#fff';x.fillRect(0,0,c.width,c.height);x.drawImage(im,0,0,c.width,c.height);
+      URL.revokeObjectURL(u);const d=c.toDataURL('image/jpeg',.9);
+      d.length*.75>MAX?res(c.toDataURL('image/jpeg',.6)):res(d);
+    };
+    im.onerror=()=>{URL.revokeObjectURL(u);f.size<=MAX?readData(f).then(res,rej):rej()};
+    im.src=u;
+  });
+}
+function buildPayload(){
+  const tab=document.querySelector('.tab.on').dataset.p;
+  if(tab==='pFile'){
+    if(!filePay){toast('اختر صورة أو ملفاً أولاً');return false}
+    payload=filePay;
+    meta={icon:filePay.kind==='image'?'🖼️':'📄',label:filePay.kind==='image'?'صورة':filePay.name,sub:fmt(filePay.size)};
+  }else if(tab==='pLink'){
+    const t=$('ltxt').value.trim();if(!t){toast('اكتب رابطاً أو نصاً أولاً');return false}
+    payload={kind:'link',text:t,size:new Blob([t]).size};
+    meta={icon:isUrl(t)?'🔗':'📝',label:isUrl(t)?'رابط':'نص',sub:fmt(payload.size)};
+  }else{
+    const n=$('vn').value.trim(),p=$('vp').value.trim(),l=$('vl').value.trim();
+    if(!n){toast('أدخل الاسم على الأقل');return false}
+    const u=normUrl(l)||l;
+    const vcf=['BEGIN:VCARD','VERSION:3.0','FN:'+n,'N:;'+n+';;;',p?'TEL;TYPE=CELL:'+p:'',u?'URL:'+u:'','END:VCARD'].filter(Boolean).join('\r\n');
+    payload={kind:'vcard',name:n,phone:p,link:u,vcf,size:vcf.length};
+    meta={icon:'👤',label:n,sub:'كارت شخصي'};
+  }
+  return true;
+}
+$('bGo').onclick=()=>{
+  if(!connected){toast('الهاتف الثاني غير متصل');return}
+  if(!buildPayload())return;
+  show('');spawn();hud('اسحب الكبسولة أو اقذفها نحو الحافة اليمنى',true,true);
+  if(!raf)raf=requestAnimationFrame(loop);
+};
+$('bBack').onclick=()=>{send({t:'hide'});backToBuilder()};
+function spawn(){
+  orb.hw=Math.min(W*.32,120);orb.hh=46;orb.x=W*.34;orb.y=H*.5;orb.vx=orb.vy=0;orb.vis=true;
+  state='play';trail=[];sentVisible=false;flying=false;dragging=false;
+}
+function backToBuilder(){state='idle';orb.vis=false;trail=[];dragging=false;flying=false;sentVisible=false;$('hud').style.display='none';show('sBuild')}
+
+/* ---------- receiver messages ---------- */
+function onRecv(d){
+  if(d.t==='payload'){payload=d.p;return}
+  if(d.meta)meta=d.meta;
+  if(state==='gather'||state==='boom'||state==='card')return;
+  if(d.t==='orb'){Object.assign(orb,{hw:d.hw,hh:d.hh,x:d.xo,y:d.yr*H,vx:d.vx,vy:d.vy,vis:true});state='incoming';lastPkt=performance.now()}
+  else if(d.t==='own'){Object.assign(orb,{hw:d.hw,hh:d.hh,x:d.xo,y:d.yr*H,vx:Math.max(d.vx,3),vy:d.vy*.3,vis:true});state='glide'}
+  else if(d.t==='hide'){orb.vis=false;state='idle'}
+}
+
+/* ---------- sender input ---------- */
+cv.addEventListener('pointerdown',e=>{
+  if(role!=='send'||state!=='play')return;
+  const dx=(e.clientX-orb.x)/(orb.hw*1.3),dy=(e.clientY-orb.y)/(orb.hh*2);
+  if(dx*dx+dy*dy<1){dragging=true;flying=false;ptr.x=e.clientX;ptr.y=e.clientY;orb.vx=orb.vy=0;cv.setPointerCapture(e.pointerId)}
+});
+cv.addEventListener('pointermove',e=>{if(dragging){ptr.x=e.clientX;ptr.y=e.clientY}});
+const endDrag=()=>{
+  if(!dragging)return;dragging=false;
+  if(connected&&(orb.vx>7||orb.x>W-orb.hw*1.2)){orb.vx=Math.max(orb.vx,11);flying=true}  // flick or edge release
+};
+cv.addEventListener('pointerup',endDrag);cv.addEventListener('pointercancel',endDrag);
+
+/* ---------- drawing ---------- */
+function rr(x,y,w,h,r){ctx.beginPath();ctx.moveTo(x+r,y);ctx.arcTo(x+w,y,x+w,y+h,r);ctx.arcTo(x+w,y+h,x,y+h,r);ctx.arcTo(x,y+h,x,y,r);ctx.arcTo(x,y,x+w,y,r);ctx.closePath()}
+function trunc(s,maxW){if(ctx.measureText(s).width<=maxW)return s;while(s.length>1&&ctx.measureText(s+'…').width>maxW)s=s.slice(0,-1);return s+'…'}
+function drawCapsule(x,y,hw,hh,t,sc=1){
+  ctx.save();ctx.translate(x,y);ctx.scale(sc,sc);
+  const g=ctx.createLinearGradient(-hw,0,hw,0);g.addColorStop(0,'rgba(0,243,255,.38)');g.addColorStop(1,'rgba(124,58,237,.6)');
+  ctx.globalCompositeOperation='lighter';
+  ctx.shadowColor='#00f3ff';ctx.shadowBlur=40;ctx.fillStyle=g;rr(-hw,-hh,hw*2,hh*2,hh);ctx.fill();
+  ctx.shadowColor='#7c3aed';ctx.shadowBlur=60;ctx.fill();ctx.shadowBlur=0;
+  ctx.globalCompositeOperation='source-over';
+  ctx.fillStyle='rgba(8,10,28,.55)';rr(-hw,-hh,hw*2,hh*2,hh);ctx.fill();
+  ctx.lineWidth=2.5;ctx.strokeStyle='#00f3ff';ctx.shadowColor='#00f3ff';ctx.shadowBlur=14;ctx.stroke();ctx.shadowBlur=0;
+  ctx.lineWidth=1.5;ctx.strokeStyle='rgba(16,185,129,.9)';ctx.setLineDash([10,8]);ctx.lineDashOffset=-t*30;
+  rr(-hw+7,-hh+7,hw*2-14,hh*2-14,hh-7);ctx.stroke();ctx.setLineDash([]);
+  const m=meta||{icon:'✨',label:'',sub:''};
+  ctx.textBaseline='middle';ctx.textAlign='center';ctx.font='28px sans-serif';ctx.fillText(m.icon,hw-hh*.85,0);
+  const tw=hw*2-hh*2.1,cx=-hh*.5+4;
+  ctx.fillStyle='#fff';ctx.font='700 16px Cairo,sans-serif';ctx.fillText(trunc(m.label,tw),cx,-9);
+  ctx.fillStyle='#9fe9ff';ctx.font='500 13px Cairo,sans-serif';ctx.fillText(trunc(m.sub,tw),cx,12);
+  ctx.restore();
+}
+function drawTrail(){
+  ctx.save();ctx.globalCompositeOperation='lighter';
+  for(const p of trail){
+    const g=ctx.createRadialGradient(p.x,p.y,0,p.x,p.y,p.r);g.addColorStop(0,'rgba(0,243,255,'+p.a*.45+')');g.addColorStop(1,'rgba(124,58,237,0)');
+    ctx.fillStyle=g;ctx.beginPath();ctx.arc(p.x,p.y,p.r,0,7);ctx.fill();p.a-=.05;p.r*=.97;
+  }
+  trail=trail.filter(p=>p.a>0);ctx.restore();
+}
+const pushTrail=()=>{if(orb.vis)trail.push({x:orb.x,y:orb.y,r:orb.hh*1.7,a:1})};
+
+/* ---------- explosion & card ---------- */
+function explode(){
+  state='boom';orb.vis=false;const cx=orb.x,cy=orb.y;
+  for(let i=0;i<450;i++){const a=Math.random()*6.283,s=Math.sqrt(Math.random())*Math.max(W,H)*.022+1;
+    particles.push({x:cx+(Math.random()-.5)*orb.hw,y:cy+(Math.random()-.5)*orb.hh,vx:Math.cos(a)*s,vy:Math.sin(a)*s,life:70+Math.random()*80,max:150,size:1.2+Math.random()*3.2,c:COLORS[i%3]})}
+  rings.push({x:cx,y:cy,r:orb.hh,a:1,c:'#00f3ff'},{x:cx,y:cy,r:orb.hh*.5,a:1,c:'#7c3aed'},{x:cx,y:cy,r:orb.hh*.2,a:1,c:'#10b981'});
+  const f=$('flash');f.style.transition='none';f.style.opacity='.95';
+  requestAnimationFrame(()=>{f.style.transition='opacity .9s ease-out';f.style.opacity='0'});
+  if(navigator.vibrate)navigator.vibrate([220,60,120,60,320]);
+  setTimeout(()=>{renderCard(payload);state='card'},650);
+}
+function download(name,data,text){
+  const go=b=>{const u=URL.createObjectURL(b),a=document.createElement('a');a.href=u;a.download=name;document.body.appendChild(a);a.click();a.remove();setTimeout(()=>URL.revokeObjectURL(u),4000)};
+  text!=null?go(new Blob([text],{type:'text/vcard'})):fetch(data).then(r=>r.blob()).then(go);
+}
+function copy(s){
+  (navigator.clipboard?navigator.clipboard.writeText(s):Promise.reject()).then(()=>toast('تم النسخ ✓'),()=>{const t=el('textarea');t.value=s;document.body.appendChild(t);t.select();try{document.execCommand('copy');toast('تم النسخ ✓')}catch(e){toast('تعذّر النسخ')}t.remove()});
+}
+function btn(txt,cls,fn){const b=el('button','btn '+cls,txt);b.onclick=fn;return b}
+function link(txt,cls,href){const a=el('a','btn '+cls,txt);a.href=href;a.target='_blank';a.rel='noopener noreferrer';return a}
+function renderCard(p){
+  const c=$('card');c.replaceChildren(el('div','t','✦ وصلت الكبسولة ✦'));
+  if(p.kind==='image'){
+    const im=el('img');im.src=p.data;c.append(im,el('div','meta',p.name+' — '+fmt(p.size)),btn('تحميل الصورة بأعلى جودة','g',()=>download(p.name,p.data)));
+  }else if(p.kind==='file'){
+    c.append(el('div','ico','📄'),el('div','big',p.name),el('div','meta',fmt(p.size)),btn('تنزيل الملف فوراً','g',()=>download(p.name,p.data)));
+  }else if(p.kind==='link'){
+    c.append(el('div','txt',p.text));
+    const u=normUrl(p.text);if(u)c.append(link('فتح الرابط','g',u));
+    c.append(btn('نسخ','',()=>copy(p.text)));
+  }else{
+    c.append(el('div','ico','👤'),el('div','big',p.name));
+    if(p.phone)c.append(el('div','meta',p.phone));
+    if(p.link)c.append(el('div','meta',p.link));
+    c.append(btn('حفظ جهة الاتصال','g',()=>download(p.name+'.vcf',null,p.vcf)));
+    const u=normUrl(p.link);if(u)c.append(link('فتح الرابط','',u));
+    if(p.phone)c.append(btn('نسخ الرقم','',()=>copy(p.phone)));
+  }
+  c.append(btn('إطلاق ملف جديد','v',resetReceiver));
+  requestAnimationFrame(()=>c.classList.add('on'));
+}
+function resetReceiver(){
+  $('card').classList.remove('on');particles=[];rings=[];trail=[];orb.vis=false;state='idle';payload=null;meta=null;
+  send({t:'reset'});hud('تم الربط ✓ انتظر وصول الكبسولة من الهاتف الأول',true);
+}
+
+/* ---------- main loop ---------- */
+const t0=performance.now();
+function loop(now){
+  const t=(now-t0)/1000;ctx.clearRect(0,0,W,H);
+  role==='send'?stepSender():stepReceiver(now);
+  drawTrail();
+  if(orb.vis){const bob=(state==='play'&&!dragging&&!flying)?Math.sin(t*2)*3:0;drawCapsule(orb.x,orb.y+bob,orb.hw,orb.hh,t,state==='gather'?gatherScale():1)}
+  drawFX();
+  raf=requestAnimationFrame(loop);
+}
+function stepSender(){
+  if(state!=='play')return;
+  const {hw,hh}=orb;
+  if(dragging){
+    const nx=orb.x+(Math.min(ptr.x,W)-orb.x)*.35,ny=orb.y+(ptr.y-orb.y)*.35;
+    orb.vx=orb.vx*.6+(nx-orb.x)*.4;orb.vy=orb.vy*.6+(ny-orb.y)*.4;
+    orb.x=nx;orb.y=Math.max(hh,Math.min(H-hh,ny));
+  }else{
+    orb.x+=orb.vx;orb.y+=orb.vy;orb.vy*=.985;if(!flying)orb.vx*=.985;
+    if(connected&&flying&&orb.vx<9)orb.vx=9;
+    if(orb.x<hw){orb.x=hw;orb.vx=Math.abs(orb.vx)*.7}
+    if(!connected&&orb.x>W-hw){orb.x=W-hw;orb.vx=-Math.abs(orb.vx)*.7;flying=false}
+    if(orb.y<hh){orb.y=hh;orb.vy=Math.abs(orb.vy)*.7}
+    if(orb.y>H-hh){orb.y=H-hh;orb.vy=-Math.abs(orb.vy)*.7}
+  }
+  pushTrail();
+  if(!connected)return;
+  const base={xo:orb.x-W,yr:orb.y/H,hw,hh,vx:orb.vx,vy:orb.vy,meta};
+  if(orb.x-hw>W){
+    send({t:'own',...base});send({t:'payload',p:payload});   // handover, then the full payload
+    state='gone';orb.vis=false;dragging=false;flying=false;if(navigator.vibrate)navigator.vibrate(40);
+    hud('عبرت الكبسولة إلى الهاتف الثاني ✨',true,false);
+  }else if(orb.x+hw>W){send({t:'orb',...base});sentVisible=true}
+  else if(sentVisible){send({t:'hide'});sentVisible=false}
+}
+function stepReceiver(now){
+  const cx=W/2,cy=H/2;
+  if(state==='incoming'){pushTrail();if(now-lastPkt>350){orb.vis=false;state='idle'}}
+  if(state==='glide'){
+    orb.x+=(cx-orb.x)*.05+orb.vx*.5;orb.y+=(cy-orb.y)*.05+orb.vy*.5;orb.vx*=.94;orb.vy*=.94;pushTrail();
+    if(Math.abs(cx-orb.x)<4&&Math.abs(cy-orb.y)<4){orb.x=cx;orb.y=cy;state='gather';gatherT=now;gather=[]}
+  }
+  if(state==='gather'){
+    for(let i=0;i<3;i++)gather.push({a:Math.random()*6.283,d:orb.hw*(1.2+Math.random()*1.4),c:COLORS[(Math.random()*3)|0]});
+    if(now-gatherT>650){
+      if(payload){gather=[];explode()}else hud('جارٍ استلام الحمولة…',false);
+    }
+  }
+}
+const gatherScale=()=>{const p=Math.min(1,(performance.now()-gatherT)/650);return 1-.25*p+Math.sin(p*40)*.03};
+function drawFX(){
+  ctx.save();ctx.globalCompositeOperation='lighter';
+  if(state==='gather'){
+    const p=Math.min(1,(performance.now()-gatherT)/650);
+    for(const g of gather){const d=g.d*(1-p*.85);ctx.fillStyle=g.c;ctx.globalAlpha=.8;ctx.beginPath();ctx.arc(orb.x+Math.cos(g.a)*d,orb.y+Math.sin(g.a)*d*.6,2.2,0,7);ctx.fill()}
+    if(gather.length>240)gather.splice(0,60);
+  }
+  ctx.globalAlpha=1;
+  for(const r of rings){ctx.strokeStyle=r.c;ctx.globalAlpha=r.a;ctx.lineWidth=4*r.a+1;ctx.beginPath();ctx.arc(r.x,r.y,r.r,0,7);ctx.stroke();r.r+=Math.max(W,H)*.02;r.a-=.018}
+  rings=rings.filter(r=>r.a>0);
+  for(const p of particles){
+    p.x+=p.vx;p.y+=p.vy;p.vx*=.985;p.vy=p.vy*.985+.03;p.life--;
+    ctx.globalAlpha=Math.max(0,p.life/p.max);ctx.fillStyle=p.c;ctx.shadowColor=p.c;ctx.shadowBlur=8;
+    ctx.beginPath();ctx.arc(p.x,p.y,p.size,0,7);ctx.fill();
+  }
+  particles=particles.filter(p=>p.life>0);ctx.restore();
+}
+})();
+</script>
+</body>
+</html>
