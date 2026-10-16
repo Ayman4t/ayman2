@@ -130,6 +130,18 @@ const $=id=>document.getElementById(id);
 const cv=$('cv'),ctx=cv.getContext('2d');
 const COLORS=['#00f3ff','#7c3aed','#10b981'];
 const PREFIX='slingdrop-ayman-',MAX=6*1024*1024;
+/* ---- Internet-wide connectivity (STUN + TURN relay) ---- */
+const METERED_APP='',METERED_KEY='';   // optional: free account at metered.ca -> more reliable TURN
+let ICE=[
+ {urls:'stun:stun.l.google.com:19302'},{urls:'stun:stun1.l.google.com:19302'},{urls:'stun:stun.relay.metered.ca:80'},
+ {urls:'turn:openrelay.metered.ca:80',username:'openrelayproject',credential:'openrelayproject'},
+ {urls:'turn:openrelay.metered.ca:443',username:'openrelayproject',credential:'openrelayproject'},
+ {urls:'turn:openrelay.metered.ca:443?transport=tcp',username:'openrelayproject',credential:'openrelayproject'},
+ {urls:'turns:openrelay.metered.ca:443?transport=tcp',username:'openrelayproject',credential:'openrelayproject'}
+];
+const PEER_OPTS=()=>({debug:0,config:{iceServers:ICE,iceCandidatePoolSize:4}});
+if(METERED_APP&&METERED_KEY)fetch('https://'+METERED_APP+'.metered.live/api/v1/turn/credentials?apiKey='+METERED_KEY).then(r=>r.json()).then(j=>{if(Array.isArray(j)&&j.length)ICE=j.concat(ICE)}).catch(()=>{});
+
 let W=0,H=0,dpr=1;
 function resize(){dpr=Math.min(devicePixelRatio||1,2);W=innerWidth;H=innerHeight;cv.width=W*dpr;cv.height=H*dpr;ctx.setTransform(dpr,0,0,dpr,0,0)}
 addEventListener('resize',resize);resize();
@@ -158,10 +170,11 @@ function startSender(attempt=0){
   const code=String(Math.floor(1000+Math.random()*9000));
   $('code').textContent=code;
   if(typeof Peer==='undefined'){$('sst').textContent='تعذّر تحميل PeerJS، تحقق من الإنترنت';return}
-  peer=new Peer(PREFIX+code);
+  peer=new Peer(PREFIX+code,PEER_OPTS());
   peer.on('open',()=>$('sst').textContent='بانتظار الهاتف الثاني…');
   peer.on('error',e=>{if(e.type==='unavailable-id'&&attempt<6){peer.destroy();startSender(attempt+1)}else $('sst').textContent='خطأ في الاتصال: '+e.type});
   peer.on('connection',c=>{
+    if(conn&&conn.open){c.close();return}
     conn=c;
     c.on('open',()=>{connected=true;$('sdot').className='dot ok';$('sst').textContent='تم الربط بنجاح ✓';$('bNext').disabled=false;$('bdot').className='dot ok';$('bst').textContent='متصل بالهاتف الثاني'});
     c.on('data',d=>{if(d.t==='reset')backToBuilder()});
@@ -176,9 +189,9 @@ function connectReceiver(){
   const code=$('room').value.trim();
   if(!/^\d{4}$/.test(code)){$('rst').textContent='الكود يجب أن يكون 4 أرقام';return}
   if(typeof Peer==='undefined'){$('rst').textContent='تعذّر تحميل PeerJS، تحقق من الإنترنت';return}
-  $('rdot').className='dot wait';$('rst').textContent='جارٍ الاتصال…';$('bConn').disabled=true;
+  $('rdot').className='dot wait';$('rst').textContent='جارٍ الاتصال…';$('bConn').disabled=true;setTimeout(()=>{if(!connected){$('rst').textContent='تعذّر الاتصال. تحقق من الكود وجرّب مرة أخرى، وأوقف الـ VPN إن وُجد';$('rdot').className='dot';$('bConn').disabled=false}},25000);
   if(peer)peer.destroy();
-  peer=new Peer();
+  peer=new Peer(undefined,PEER_OPTS());
   peer.on('open',()=>{
     conn=peer.connect(PREFIX+code,{reliable:true});
     conn.on('open',()=>{connected=true;$('rdot').className='dot ok';show('');state='idle';hud('تم الربط ✓ انتظر وصول الكبسولة من الهاتف الأول',true);if(!raf)raf=requestAnimationFrame(loop)});
