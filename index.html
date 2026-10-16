@@ -96,7 +96,7 @@ input.num{font-size:34px;letter-spacing:12px;font-weight:700;direction:ltr;text-
       <button class="tab" data-p="pCard">كارت شخصي</button>
     </div>
     <div class="pane on" id="pFile">
-      <label class="pick" for="fin"><b>اختر صورة أو ملفاً</b>الصور تُضغط تلقائياً لنقل أسرع، والحد الأقصى للملف 6 ميغابايت</label>
+      <label class="pick" for="fin"><b>اختر صورة أو ملفاً</b>الصور تُضغط تلقائياً لنقل أسرع، والحد الأقصى للملفات 200 ميغابايت</label>
       <input type="file" id="fin" style="display:none">
       <img id="pv" alt="">
       <div class="label" id="finfo" style="margin-top:8px;text-align:center"></div>
@@ -129,25 +129,64 @@ input.num{font-size:34px;letter-spacing:12px;font-weight:700;direction:ltr;text-
 const $=id=>document.getElementById(id);
 const cv=$('cv'),ctx=cv.getContext('2d');
 const COLORS=['#00f3ff','#7c3aed','#10b981'];
-const PREFIX='slingdrop-ayman-',MAX=6*1024*1024;
+const PREFIX='slingdrop-ayman-',MAX=6*1024*1024,MAXF=200*1024*1024;
 /* ---- Internet-wide connectivity (STUN + TURN relay) ---- */
-const METERED_APP='',METERED_KEY='';   // optional: free account at metered.ca -> more reliable TURN
+let METERED_APP='',METERED_KEY='';   // or open the site as  ?turn=APPNAME:APIKEY  (saved on that phone)
+try{const q=new URLSearchParams(location.search).get('turn');if(q)localStorage.setItem('qturn',q);const v=(q||localStorage.getItem('qturn')||'').split(':');METERED_APP=v[0]||METERED_APP;METERED_KEY=v[1]||METERED_KEY}catch(e){}
 let ICE=[
- {urls:'stun:stun.l.google.com:19302'},{urls:'stun:stun1.l.google.com:19302'},{urls:'stun:stun.relay.metered.ca:80'},
+ {urls:'stun:stun.l.google.com:19302'},{urls:'stun:stun.cloudflare.com:3478'},
  {urls:'turn:openrelay.metered.ca:80',username:'openrelayproject',credential:'openrelayproject'},
  {urls:'turn:openrelay.metered.ca:443',username:'openrelayproject',credential:'openrelayproject'},
  {urls:'turn:openrelay.metered.ca:443?transport=tcp',username:'openrelayproject',credential:'openrelayproject'},
- {urls:'turns:openrelay.metered.ca:443?transport=tcp',username:'openrelayproject',credential:'openrelayproject'}
+ {urls:'turns:openrelay.metered.ca:443?transport=tcp',username:'openrelayproject',credential:'openrelayproject'},
+ {urls:'turn:freestun.net:3478',username:'free',credential:'free'},
+ {urls:'turns:freestun.net:5349',username:'free',credential:'free'},
+ {urls:'turn:turn.anyfirewall.com:443?transport=tcp',username:'webrtc',credential:'webrtc'}
 ];
+let iceDone=!(METERED_APP&&METERED_KEY);
 const PEER_OPTS=()=>({debug:0,config:{iceServers:ICE,iceCandidatePoolSize:4}});
-if(METERED_APP&&METERED_KEY)fetch('https://'+METERED_APP+'.metered.live/api/v1/turn/credentials?apiKey='+METERED_KEY).then(r=>r.json()).then(j=>{if(Array.isArray(j)&&j.length)ICE=j.concat(ICE)}).catch(()=>{});
+if(!iceDone){
+  fetch('https://'+METERED_APP+'.metered.live/api/v1/turn/credentials?apiKey='+METERED_KEY).then(r=>r.json()).then(j=>{if(Array.isArray(j)&&j.length)ICE=j.concat(ICE.slice(0,2))}).catch(()=>{}).finally(()=>{iceDone=true});
+  setTimeout(()=>{iceDone=true},4000);
+}
+function watchIce(c,id){
+  const t=setInterval(()=>{
+    const pc=c.peerConnection;if(!pc)return;clearInterval(t);
+    const e=document.getElementById(id);
+    const upd=()=>{const s=pc.iceConnectionState;if(!e||connected)return;
+      e.textContent=s==='failed'?'فشل الاتصال عبر هذه الشبكة: تحتاج شبكة الجوال خادم ترحيل (TURN) يعمل. راجع الإعداد':s==='disconnected'?'الاتصال ضعيف…':'جارٍ اختبار مسارات الاتصال…'};
+    pc.addEventListener('iceconnectionstatechange',upd);upd();
+  },200);
+  setTimeout(()=>clearInterval(t),30000);
+}
+async function testRelay(){
+  try{
+    const pc=new RTCPeerConnection({iceServers:ICE.filter(s=>/^turns?:/.test([].concat(s.urls)[0])),iceTransportPolicy:'relay'});
+    pc.createDataChannel('t');let ok=false;
+    pc.onicecandidate=e=>{if(e.candidate&&/ typ relay/.test(e.candidate.candidate))ok=true};
+    await pc.setLocalDescription(await pc.createOffer());
+    await new Promise(r=>{const t=setTimeout(r,7000);pc.onicegatheringstatechange=()=>{if(pc.iceGatheringState==='complete'){clearTimeout(t);r()}}});
+    pc.close();return ok;
+  }catch(e){return false}
+}
+(function(){
+  const b=document.querySelector('#sRole .box');if(!b)return;
+  const n=document.createElement('div');n.style.cssText='margin-top:18px;font-size:13px;color:#8a94b8;line-height:1.8';
+  n.textContent='🌐 جارٍ فحص الاتصال عبر الإنترنت…';b.append(n);
+  (async()=>{
+    while(!iceDone)await new Promise(r=>setTimeout(r,200));
+    const ok=await testRelay();
+    n.style.color=ok?'#10b981':'#fbbf24';
+    n.innerHTML=ok?'🌐 الاتصال عبر بيانات الجوال متاح ✓':'⚠️ خادم الترحيل غير متاح: سيعمل الربط على نفس الـ Wi-Fi فقط.<br>افتح الموقع بالشكل <span dir="ltr">?turn=APPNAME:APIKEY</span>';
+  })();
+})();
 
 let W=0,H=0,dpr=1;
 function resize(){dpr=Math.min(devicePixelRatio||1,2);W=innerWidth;H=innerHeight;cv.width=W*dpr;cv.height=H*dpr;ctx.setTransform(dpr,0,0,dpr,0,0)}
 addEventListener('resize',resize);resize();
 
 let role=null,peer=null,conn=null,connected=false;
-let payload=null,meta=null,filePay=null;
+let payload=null,meta=null,filePay=null,recvParts=[],recvBytes=0;
 const orb={x:0,y:0,vx:0,vy:0,hw:110,hh:44,vis:false};
 let state='idle',dragging=false,flying=false,ptr={x:0,y:0},sentVisible=false,lastPkt=0,gatherT=0;
 let trail=[],particles=[],rings=[],gather=[],raf=0;
@@ -166,7 +205,7 @@ const isUrl=s=>!!normUrl(s);
 $('bSend').onclick=()=>{role='send';show('sSend');startSender()};
 $('bRecv').onclick=()=>{role='recv';show('sRecv');$('room').focus()};
 
-function startSender(attempt=0){
+function startSender(attempt=0){if(!iceDone){setTimeout(()=>startSender(attempt),300);return}
   const code=String(Math.floor(1000+Math.random()*9000));
   $('code').textContent=code;
   if(typeof Peer==='undefined'){$('sst').textContent='تعذّر تحميل PeerJS، تحقق من الإنترنت';return}
@@ -175,7 +214,7 @@ function startSender(attempt=0){
   peer.on('error',e=>{if(e.type==='unavailable-id'&&attempt<6){peer.destroy();startSender(attempt+1)}else $('sst').textContent='خطأ في الاتصال: '+e.type});
   peer.on('connection',c=>{
     if(conn&&conn.open){c.close();return}
-    conn=c;
+    conn=c;watchIce(c,'sst');
     c.on('open',()=>{connected=true;$('sdot').className='dot ok';$('sst').textContent='تم الربط بنجاح ✓';$('bNext').disabled=false;$('bdot').className='dot ok';$('bst').textContent='متصل بالهاتف الثاني'});
     c.on('data',d=>{if(d.t==='reset')backToBuilder()});
     c.on('close',()=>{connected=false;$('sdot').className='dot wait';$('sst').textContent='انقطع الاتصال، بانتظار الهاتف الثاني…';$('bNext').disabled=true;$('bdot').className='dot wait';$('bst').textContent='انقطع الاتصال';if(state==='play')hud('انقطع الاتصال',false,true)});
@@ -185,7 +224,7 @@ $('bNext').onclick=()=>show('sBuild');
 
 $('bConn').onclick=connectReceiver;
 $('room').addEventListener('keydown',e=>{if(e.key==='Enter')connectReceiver()});
-function connectReceiver(){
+function connectReceiver(){if(!iceDone){setTimeout(connectReceiver,300);return}
   const code=$('room').value.trim();
   if(!/^\d{4}$/.test(code)){$('rst').textContent='الكود يجب أن يكون 4 أرقام';return}
   if(typeof Peer==='undefined'){$('rst').textContent='تعذّر تحميل PeerJS، تحقق من الإنترنت';return}
@@ -193,7 +232,7 @@ function connectReceiver(){
   if(peer)peer.destroy();
   peer=new Peer(undefined,PEER_OPTS());
   peer.on('open',()=>{
-    conn=peer.connect(PREFIX+code,{reliable:true});
+    conn=peer.connect(PREFIX+code,{reliable:true});watchIce(conn,'rst');
     conn.on('open',()=>{connected=true;$('rdot').className='dot ok';show('');state='idle';hud('تم الربط ✓ انتظر وصول الكبسولة من الهاتف الأول',true);if(!raf)raf=requestAnimationFrame(loop)});
     conn.on('data',onRecv);
     conn.on('close',()=>{connected=false;hud('انقطع الاتصال',false)});
@@ -215,8 +254,8 @@ $('fin').onchange=async e=>{
       filePay={kind:'image',name:f.name.replace(/\.\w+$/,'')+'.jpg',mime:'image/jpeg',data:d,size:Math.round(d.length*.75)};
       $('pv').src=d;$('pv').style.display='block';
     }else{
-      if(f.size>MAX){$('finfo').textContent='الملف كبير جداً (الحد 6 ميغابايت)';return}
-      filePay={kind:'file',name:f.name,mime:f.type||'application/octet-stream',data:await readData(f),size:f.size};
+      if(f.size>MAXF){$('finfo').textContent='الملف كبير جداً (الحد 200 ميغابايت)';return}
+      filePay={kind:'file',name:f.name,mime:f.type||'application/octet-stream',file:f,size:f.size};
     }
     $('finfo').textContent=filePay.name+' — '+fmt(filePay.size);
   }catch(err){$('finfo').textContent='تعذّر قراءة الملف'}
@@ -263,6 +302,21 @@ $('bGo').onclick=()=>{
   if(!raf)raf=requestAnimationFrame(loop);
 };
 $('bBack').onclick=()=>{send({t:'hide'});backToBuilder()};
+async function sendFile(p){
+  send({t:'payload',p:{kind:'file',name:p.name,mime:p.mime,size:p.size,chunked:true}});
+  const CH=131072;let off=0;
+  try{
+    while(off<p.size){
+      if(!conn||!conn.open)throw 0;
+      const dc=conn.dataChannel||conn._dc;
+      if((conn.bufferSize||0)>120||(dc&&dc.bufferedAmount>4e6)){await new Promise(r=>setTimeout(r,40));continue}
+      const ab=await p.file.slice(off,off+CH).arrayBuffer();
+      conn.send({t:'c',d:ab});off+=ab.byteLength;
+      hud('جارٍ إرسال الملف… '+Math.round(off/p.size*100)+'%  (أبقِ هذه الصفحة مفتوحة)',true,false);
+    }
+    send({t:'done'});hud('اكتمل إرسال الملف ✓',true,false);
+  }catch(e){hud('انقطع إرسال الملف',false,false)}
+}
 function spawn(){
   orb.hw=Math.min(W*.32,120);orb.hh=46;orb.x=W*.34;orb.y=H*.5;orb.vx=orb.vy=0;orb.vis=true;
   state='play';trail=[];sentVisible=false;flying=false;dragging=false;
@@ -271,7 +325,9 @@ function backToBuilder(){state='idle';orb.vis=false;trail=[];dragging=false;flyi
 
 /* ---------- receiver messages ---------- */
 function onRecv(d){
-  if(d.t==='payload'){payload=d.p;return}
+  if(d.t==='payload'){payload=d.p;if(payload.chunked){payload.ready=false;recvParts=[];recvBytes=0}return}
+  if(d.t==='c'){recvParts.push(d.d);recvBytes+=(d.d.byteLength||d.d.length||0);return}
+  if(d.t==='done'){if(payload){payload.blob=new Blob(recvParts,{type:payload.mime});payload.ready=true;recvParts=[]}return}
   if(d.meta)meta=d.meta;
   if(state==='gather'||state==='boom'||state==='card')return;
   if(d.t==='orb'){Object.assign(orb,{hw:d.hw,hh:d.hh,x:d.xo,y:d.yr*H,vx:d.vx,vy:d.vy,vis:true});state='incoming';lastPkt=performance.now()}
@@ -334,9 +390,9 @@ function explode(){
   if(navigator.vibrate)navigator.vibrate([220,60,120,60,320]);
   setTimeout(()=>{renderCard(payload);state='card'},650);
 }
-function download(name,data,text){
+function download(name,data,text,blob){
   const go=b=>{const u=URL.createObjectURL(b),a=document.createElement('a');a.href=u;a.download=name;document.body.appendChild(a);a.click();a.remove();setTimeout(()=>URL.revokeObjectURL(u),4000)};
-  text!=null?go(new Blob([text],{type:'text/vcard'})):fetch(data).then(r=>r.blob()).then(go);
+  blob?go(blob):text!=null?go(new Blob([text],{type:'text/vcard'})):fetch(data).then(r=>r.blob()).then(go);
 }
 function copy(s){
   (navigator.clipboard?navigator.clipboard.writeText(s):Promise.reject()).then(()=>toast('تم النسخ ✓'),()=>{const t=el('textarea');t.value=s;document.body.appendChild(t);t.select();try{document.execCommand('copy');toast('تم النسخ ✓')}catch(e){toast('تعذّر النسخ')}t.remove()});
@@ -348,7 +404,7 @@ function renderCard(p){
   if(p.kind==='image'){
     const im=el('img');im.src=p.data;c.append(im,el('div','meta',p.name+' — '+fmt(p.size)),btn('تحميل الصورة بأعلى جودة','g',()=>download(p.name,p.data)));
   }else if(p.kind==='file'){
-    c.append(el('div','ico','📄'),el('div','big',p.name),el('div','meta',fmt(p.size)),btn('تنزيل الملف فوراً','g',()=>download(p.name,p.data)));
+    c.append(el('div','ico','📄'),el('div','big',p.name),el('div','meta',fmt(p.size)),btn('تنزيل الملف فوراً','g',()=>download(p.name,p.data,null,p.blob)));
   }else if(p.kind==='link'){
     c.append(el('div','txt',p.text));
     const u=normUrl(p.text);if(u)c.append(link('فتح الرابط','g',u));
@@ -398,7 +454,7 @@ function stepSender(){
   if(!connected)return;
   const base={xo:orb.x-W,yr:orb.y/H,hw,hh,vx:orb.vx,vy:orb.vy,meta};
   if(orb.x-hw>W){
-    send({t:'own',...base});send({t:'payload',p:payload});   // handover, then the full payload
+    send({t:'own',...base});payload.file?sendFile(payload):send({t:'payload',p:payload});   // handover, then the full payload
     state='gone';orb.vis=false;dragging=false;flying=false;if(navigator.vibrate)navigator.vibrate(40);
     hud('عبرت الكبسولة إلى الهاتف الثاني ✨',true,false);
   }else if(orb.x+hw>W){const nt=performance.now();if(nt-(orb.gt||0)>=33){send({t:'orb',...base});orb.gt=nt}sentVisible=true}
@@ -414,7 +470,7 @@ function stepReceiver(now){
   if(state==='gather'){
     for(let i=0;i<3;i++)gather.push({a:Math.random()*6.283,d:orb.hw*(1.2+Math.random()*1.4),c:COLORS[(Math.random()*3)|0]});
     if(now-gatherT>650){
-      if(payload){gather=[];explode()}else hud('جارٍ استلام الحمولة…',false);
+      if(payload&&payload.ready!==false){gather=[];explode()}else hud('جارٍ استلام الملف… '+(payload&&payload.size?Math.min(99,Math.round(recvBytes/payload.size*100))+'%':''),false);
     }
   }
 }
