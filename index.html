@@ -80,7 +80,7 @@ input.num{font-size:34px;letter-spacing:12px;font-weight:700;direction:ltr;text-
   <div class="box">
     <div class="label">كود الربط</div>
     <div class="code" id="code">····</div>
-    <p class="sub" style="margin:6px 0 0">أدخل هذا الكود في الهاتف الثاني</p>
+    <p class="sub" id="csub" style="margin:6px 0 0">أدخل هذا الكود في الهاتف الثاني</p>
     <div class="status"><i class="dot wait" id="sdot"></i><span id="sst">جارٍ إنشاء الغرفة…</span></div>
     <button class="btn g" id="bNext" disabled>متابعة وتجهيز الحمولة</button>
   </div>
@@ -130,6 +130,7 @@ const $=id=>document.getElementById(id);
 const cv=$('cv'),ctx=cv.getContext('2d');
 const COLORS=['#00f3ff','#7c3aed','#10b981'];
 const PREFIX='slingdrop-ayman-',MAX=6*1024*1024,MAXF=200*1024*1024;
+const MAXDEV=8;   // max receiving devices per room (change this number to allow more/less)
 /* ---- Internet-wide connectivity (STUN + TURN relay) ---- */
 let METERED_APP='',METERED_KEY='';   // or open the site as  ?turn=APPNAME:APIKEY  (saved on that phone)
 try{const q=new URLSearchParams(location.search).get('turn');if(q)localStorage.setItem('qturn',q);const v=(q||localStorage.getItem('qturn')||'').split(':');METERED_APP=v[0]||METERED_APP;METERED_KEY=v[1]||METERED_KEY}catch(e){}
@@ -185,7 +186,7 @@ let W=0,H=0,dpr=1;
 function resize(){dpr=Math.min(devicePixelRatio||1,2);W=innerWidth;H=innerHeight;cv.width=W*dpr;cv.height=H*dpr;ctx.setTransform(dpr,0,0,dpr,0,0)}
 addEventListener('resize',resize);resize();
 
-let role=null,peer=null,conn=null,connected=false;
+let role=null,peer=null,conn=null,connected=false,conns=[],resets=new Set(),roomFull=false;
 let payload=null,meta=null,filePay=null,recvParts=[],recvBytes=0;
 const orb={x:0,y:0,vx:0,vy:0,hw:110,hh:44,vis:false};
 let state='idle',dragging=false,flying=false,ptr={x:0,y:0},sentVisible=false,lastPkt=0,gatherT=0;
@@ -194,7 +195,8 @@ let trail=[],particles=[],rings=[],gather=[],raf=0;
 /* ---------- helpers ---------- */
 const show=id=>document.querySelectorAll('.screen').forEach(s=>s.classList.toggle('on',s.id===id));
 function hud(txt,ok,back){$('hud').style.display='flex';$('htxt').textContent=txt;$('hdot').className='dot '+(ok?'ok':'wait');$('bBack').style.display=back?'inline-flex':'none'}
-const send=o=>{if(conn&&conn.open)try{conn.send(o)}catch(e){}};
+const liveConns=()=>conns.filter(c=>c.open);
+const send=o=>{if(role==='send'){liveConns().forEach(c=>{try{c.send(o)}catch(e){}})}else if(conn&&conn.open)try{conn.send(o)}catch(e){}};
 const fmt=b=>b<1024?b+' بايت':b<1048576?(b/1024).toFixed(1)+' ك.ب':(b/1048576).toFixed(2)+' م.ب';
 let tt;function toast(s){const t=$('toast');t.textContent=s;t.classList.add('on');clearTimeout(tt);tt=setTimeout(()=>t.classList.remove('on'),2000)}
 function el(tag,cls,txt){const e=document.createElement(tag);if(cls)e.className=cls;if(txt!=null)e.textContent=txt;return e}
@@ -207,18 +209,31 @@ $('bRecv').onclick=()=>{role='recv';show('sRecv');$('room').focus()};
 
 function startSender(attempt=0){if(!iceDone){setTimeout(()=>startSender(attempt),300);return}
   const code=String(Math.floor(1000+Math.random()*9000));
-  $('code').textContent=code;
+  $('code').textContent=code;$('csub').textContent='أدخل هذا الكود في الأجهزة الأخرى (حتى '+MAXDEV+' أجهزة)';
   if(typeof Peer==='undefined'){$('sst').textContent='تعذّر تحميل PeerJS، تحقق من الإنترنت';return}
   peer=new Peer(PREFIX+code,PEER_OPTS());
   peer.on('open',()=>$('sst').textContent='بانتظار الهاتف الثاني…');
   peer.on('error',e=>{if(e.type==='unavailable-id'&&attempt<6){peer.destroy();startSender(attempt+1)}else $('sst').textContent='خطأ في الاتصال: '+e.type});
   peer.on('connection',c=>{
-    if(conn&&conn.open){c.close();return}
-    conn=c;watchIce(c,'sst');
-    c.on('open',()=>{connected=true;$('sdot').className='dot ok';$('sst').textContent='تم الربط بنجاح ✓';$('bNext').disabled=false;$('bdot').className='dot ok';$('bst').textContent='متصل بالهاتف الثاني'});
-    c.on('data',d=>{if(d.t==='reset')backToBuilder()});
-    c.on('close',()=>{connected=false;$('sdot').className='dot wait';$('sst').textContent='انقطع الاتصال، بانتظار الهاتف الثاني…';$('bNext').disabled=true;$('bdot').className='dot wait';$('bst').textContent='انقطع الاتصال';if(state==='play')hud('انقطع الاتصال',false,true)});
+    if(liveConns().length>=MAXDEV){c.on('open',()=>{try{c.send({t:'full'})}catch(e){}setTimeout(()=>c.close(),400)});return}
+    conns.push(c);watchIce(c,'sst');
+    c.on('open',refreshDevices);
+    c.on('data',d=>{if(d.t==='reset'){resets.add(c);if(resets.size>=liveConns().length)backToBuilder()}});
+    c.on('close',()=>{conns=conns.filter(x=>x!==c);resets.delete(c);refreshDevices()});
+    c.on('error',()=>{conns=conns.filter(x=>x!==c);refreshDevices()});
   });
+}
+function refreshDevices(){
+  const n=liveConns().length;connected=n>0;
+  if(n){
+    $('sdot').className='dot ok';$('sst').textContent='تم ربط '+n+' من '+MAXDEV+' أجهزة ✓ (يمكن إضافة المزيد)';
+    $('bNext').disabled=false;$('bdot').className='dot ok';$('bst').textContent='متصل بـ '+n+' جهاز';
+    if(state==='play')hud('اسحب الكبسولة أو اقذفها نحو الحافة اليمنى ('+n+' جهاز)',true,true);
+  }else{
+    $('sdot').className='dot wait';$('sst').textContent='انقطع الاتصال، بانتظار الأجهزة…';$('bNext').disabled=true;
+    $('bdot').className='dot wait';$('bst').textContent='انقطع الاتصال';
+    if(state==='play')hud('انقطع الاتصال',false,true);
+  }
 }
 $('bNext').onclick=()=>show('sBuild');
 
@@ -228,14 +243,14 @@ function connectReceiver(){if(!iceDone){setTimeout(connectReceiver,300);return}
   const code=$('room').value.trim();
   if(!/^\d{4}$/.test(code)){$('rst').textContent='الكود يجب أن يكون 4 أرقام';return}
   if(typeof Peer==='undefined'){$('rst').textContent='تعذّر تحميل PeerJS، تحقق من الإنترنت';return}
-  $('rdot').className='dot wait';$('rst').textContent='جارٍ الاتصال…';$('bConn').disabled=true;setTimeout(()=>{if(!connected){$('rst').textContent='تعذّر الاتصال. تحقق من الكود وجرّب مرة أخرى، وأوقف الـ VPN إن وُجد';$('rdot').className='dot';$('bConn').disabled=false}},25000);
+  roomFull=false;$('rdot').className='dot wait';$('rst').textContent='جارٍ الاتصال…';$('bConn').disabled=true;setTimeout(()=>{if(!connected){$('rst').textContent='تعذّر الاتصال. تحقق من الكود وجرّب مرة أخرى، وأوقف الـ VPN إن وُجد';$('rdot').className='dot';$('bConn').disabled=false}},25000);
   if(peer)peer.destroy();
   peer=new Peer(undefined,PEER_OPTS());
   peer.on('open',()=>{
     conn=peer.connect(PREFIX+code,{reliable:true});watchIce(conn,'rst');
     conn.on('open',()=>{connected=true;$('rdot').className='dot ok';show('');state='idle';hud('تم الربط ✓ انتظر وصول الكبسولة من الهاتف الأول',true);if(!raf)raf=requestAnimationFrame(loop)});
     conn.on('data',onRecv);
-    conn.on('close',()=>{connected=false;hud('انقطع الاتصال',false)});
+    conn.on('close',()=>{if(roomFull)return;connected=false;hud('انقطع الاتصال',false)});
   });
   peer.on('error',e=>{$('bConn').disabled=false;$('rdot').className='dot';$('rst').textContent=e.type==='peer-unavailable'?'الكود غير صحيح أو الغرفة غير موجودة':'خطأ في الاتصال: '+e.type});
 }
@@ -307,24 +322,24 @@ async function sendFile(p){
   const CH=131072;let off=0;
   try{
     while(off<p.size){
-      if(!conn||!conn.open)throw 0;
-      const dc=conn.dataChannel||conn._dc;
-      if((conn.bufferSize||0)>120||(dc&&dc.bufferedAmount>4e6)){await new Promise(r=>setTimeout(r,40));continue}
+      const cs=liveConns();if(!cs.length)throw 0;
+      if(cs.some(c=>{const dc=c.dataChannel||c._dc;return (c.bufferSize||0)>120||(dc&&dc.bufferedAmount>4e6)})){await new Promise(r=>setTimeout(r,40));continue}
       const ab=await p.file.slice(off,off+CH).arrayBuffer();
-      conn.send({t:'c',d:ab});off+=ab.byteLength;
-      hud('جارٍ إرسال الملف… '+Math.round(off/p.size*100)+'%  (أبقِ هذه الصفحة مفتوحة)',true,false);
+      cs.forEach(c=>{try{c.send({t:'c',d:ab})}catch(e){}});off+=ab.byteLength;
+      hud('جارٍ إرسال الملف إلى '+cs.length+' جهاز… '+Math.round(off/p.size*100)+'%  (أبقِ هذه الصفحة مفتوحة)',true,false);
     }
-    send({t:'done'});hud('اكتمل إرسال الملف ✓',true,false);
-  }catch(e){hud('انقطع إرسال الملف',false,false)}
+    send({t:'done'});hud('اكتمل إرسال الملف ✓',true,true);
+  }catch(e){hud('انقطع إرسال الملف',false,true)}
 }
 function spawn(){
   orb.hw=Math.min(W*.32,120);orb.hh=46;orb.x=W*.34;orb.y=H*.5;orb.vx=orb.vy=0;orb.vis=true;
-  state='play';trail=[];sentVisible=false;flying=false;dragging=false;
+  state='play';trail=[];sentVisible=false;flying=false;dragging=false;resets.clear();
 }
-function backToBuilder(){state='idle';orb.vis=false;trail=[];dragging=false;flying=false;sentVisible=false;$('hud').style.display='none';show('sBuild')}
+function backToBuilder(){resets.clear();state='idle';orb.vis=false;trail=[];dragging=false;flying=false;sentVisible=false;$('hud').style.display='none';show('sBuild')}
 
 /* ---------- receiver messages ---------- */
 function onRecv(d){
+  if(d.t==='full'){roomFull=true;connected=false;$('hud').style.display='none';show('sRecv');$('bConn').disabled=false;$('rdot').className='dot';$('rst').textContent='الغرفة ممتلئة (الحد الأقصى '+MAXDEV+' أجهزة)';return}
   if(d.t==='payload'){payload=d.p;if(payload.chunked){payload.ready=false;recvParts=[];recvBytes=0}return}
   if(d.t==='c'){recvParts.push(d.d);recvBytes+=(d.d.byteLength||d.d.length||0);return}
   if(d.t==='done'){if(payload){payload.blob=new Blob(recvParts,{type:payload.mime});payload.ready=true;recvParts=[]}return}
@@ -456,7 +471,7 @@ function stepSender(){
   if(orb.x-hw>W){
     send({t:'own',...base});payload.file?sendFile(payload):send({t:'payload',p:payload});   // handover, then the full payload
     state='gone';orb.vis=false;dragging=false;flying=false;if(navigator.vibrate)navigator.vibrate(40);
-    hud('عبرت الكبسولة إلى الهاتف الثاني ✨',true,false);
+    hud('عبرت الكبسولة إلى '+liveConns().length+' جهاز ✨',true,true);
   }else if(orb.x+hw>W){const nt=performance.now();if(nt-(orb.gt||0)>=33){send({t:'orb',...base});orb.gt=nt}sentVisible=true}
   else if(sentVisible){send({t:'hide'});sentVisible=false}
 }
