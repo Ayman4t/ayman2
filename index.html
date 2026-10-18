@@ -429,12 +429,12 @@ hooks.onMsg=(from,d)=>{
   if(d.t==='orb'){
     if(state!=='idle'&&state!=='incoming')return;
     if(d.meta)meta=d.meta;closeUI();
-    Object.assign(orb,{hw:d.hw,hh:d.hh,x:d.xo,y:d.yr*H,vx:d.vx,vy:d.vy,vis:true});state='incoming';lastPkt=performance.now();
+    Object.assign(orb,{hw:d.hw,hh:d.hh,x:d.xo,y:d.yr*H,vx:d.vx,vy:d.vy,vis:true});if(d.tg===mySlot)alertIn();state='incoming';lastPkt=performance.now();
   }else if(d.t==='own'){
     if(state==='play'||state==='glide'||state==='pass'){sendTo(d.origin,{t:'busy'});return}
     if(d.meta)meta=d.meta;closeUI();
     Object.assign(orb,{hw:d.hw,hh:d.hh,x:d.xo,y:d.yr*H,vis:true,od:d.od,tg:d.tg,origin:d.origin,sentTo:null});
-    if(mySlot===d.tg){state='glide';orb.vx=d.od*Math.max(Math.abs(d.vx),3);orb.vy=d.vy*.3}
+    if(mySlot===d.tg){alertIn();state='glide';orb.vx=d.od*Math.max(Math.abs(d.vx),3);orb.vy=d.vy*.3}
     else{state='pass';orb.vx=d.od*Math.max(Math.abs(d.vx),9);orb.vy=d.vy*.2}
   }
 };
@@ -485,7 +485,7 @@ function drawTrail(){
 const pushTrail=()=>{if(orb.vis)trail.push({x:orb.x,y:orb.y,r:orb.hh*1.7,a:1})};
 
 /* ---------- explosion & card ---------- */
-function explode(){
+function explode(){playBoom();
   state='boom';orb.vis=false;const cx=orb.x,cy=orb.y;
   for(let i=0;i<280;i++){const a=Math.random()*6.283,s=Math.sqrt(Math.random())*Math.max(W,H)*.022+1;
     particles.push({x:cx+(Math.random()-.5)*orb.hw,y:cy+(Math.random()-.5)*orb.hh,vx:Math.cos(a)*s,vy:Math.sin(a)*s,life:70+Math.random()*80,max:150,size:1.2+Math.random()*3.2,c:COLORS[i%3]})}
@@ -531,6 +531,27 @@ function resetReceiver(openB){
   if(openB===true){show('sBuild');renderTargets()}
 }
 
+/* ---------- sound (WebAudio, no files) ---------- */
+let AC=null,soundOn=true,lastAlert=-1e9;
+try{soundOn=localStorage.getItem('sdsound')!=='0'}catch(e){}
+function unlockAudio(){try{if(!AC){const C=window.AudioContext||window.webkitAudioContext;if(C)AC=new C()}if(AC&&AC.state==='suspended')AC.resume()}catch(e){}}
+['pointerdown','touchstart','click','keydown'].forEach(ev=>addEventListener(ev,unlockAudio,{passive:true}));
+function tone(f,t,d,type,v,f2){
+  if(!AC||!soundOn)return;
+  try{const o=AC.createOscillator(),g=AC.createGain(),n=AC.currentTime+t;
+    o.type=type||'sine';o.frequency.setValueAtTime(f,n);if(f2)o.frequency.exponentialRampToValueAtTime(f2,n+d);
+    g.gain.setValueAtTime(.0001,n);g.gain.exponentialRampToValueAtTime(v||.2,n+.02);g.gain.exponentialRampToValueAtTime(.0001,n+d);
+    o.connect(g);g.connect(AC.destination);o.start(n);o.stop(n+d+.05)}catch(e){}
+}
+const playAlert=()=>{[0,.34,.68].forEach(t=>{tone(880,t,.14,'square',.16);tone(1320,t+.16,.14,'square',.16)})};
+const playBoom=()=>{tone(180,0,.5,'sawtooth',.28,40);[523,659,784,1047].forEach((f,i)=>tone(f,.15+i*.09,.4,'triangle',.2))};
+const playSend=()=>tone(300,0,.25,'sine',.15,900);
+function alertIn(){const n=performance.now();if(n-lastAlert>4000){lastAlert=n;playAlert()}}
+const snd=document.createElement('button');
+snd.style.cssText="position:fixed;z-index:12;left:12px;bottom:max(22px,env(safe-area-inset-bottom));width:44px;height:44px;border-radius:50%;font-size:20px;color:#fff;border:1.5px solid rgba(0,243,255,.5);background:rgba(14,16,40,.78);cursor:pointer";
+const paintSnd=()=>{snd.textContent=soundOn?'🔊':'🔇'};paintSnd();document.body.append(snd);
+snd.onclick=()=>{soundOn=!soundOn;try{localStorage.setItem('sdsound',soundOn?'1':'0')}catch(e){}paintSnd();unlockAudio();if(soundOn){playSend();toast('🔊 الصوت مفعّل')}else toast('🔇 الصوت مغلق')};
+
 /* ---------- send button (every device) ---------- */
 const fab=document.createElement('button');fab.textContent='📤 إرسال';
 fab.style.cssText="position:fixed;z-index:12;bottom:max(22px,env(safe-area-inset-bottom));left:50%;transform:translateX(-50%);display:none;font:inherit;font-weight:700;font-size:17px;color:#fff;border:1.5px solid #00f3ff;border-radius:999px;padding:13px 28px;background:rgba(14,16,40,.78);box-shadow:0 0 22px rgba(0,243,255,.45);cursor:pointer";
@@ -551,9 +572,9 @@ function loop(now){
 function edgeCheck(od){
   const N=nb(od);if(!N)return false;const hw=orb.hw;
   const over=od>0?orb.x+hw>W:orb.x-hw<0,out=od>0?orb.x-hw>W:orb.x+hw<0;
-  const base={xo:od>0?orb.x-W:N.w+orb.x,yr:orb.y/H,hw,hh:orb.hh,vx:orb.vx,vy:orb.vy,meta};
+  const base={xo:od>0?orb.x-W:N.w+orb.x,yr:orb.y/H,hw,hh:orb.hh,vx:orb.vx,vy:orb.vy,meta,tg:orb.tg};
   if(out){
-    sendTo(N.slot,{t:'own',...base,od,tg:orb.tg,origin:orb.origin});
+    sendTo(N.slot,{t:'own',...base,od,tg:orb.tg,origin:orb.origin});if(orb.origin===mySlot)playSend();
     if(orb.origin===mySlot)outPay.file?sendFile(outPay,orb.tg):sendTo(orb.tg,{t:'payload',p:outPay});
     state=orb.origin===mySlot?'gone':'idle';orb.vis=false;dragging=false;flying=false;orb.sentTo=null;if(navigator.vibrate)navigator.vibrate(40);
     hud(orb.origin===mySlot?'عبرت الكبسولة نحو الجهاز '+orb.tg+' ✨':'مرّت الكبسولة عبر هذا الجهاز ✨',true,orb.origin===mySlot);
