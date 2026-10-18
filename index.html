@@ -314,6 +314,7 @@ hooks.roster=n=>{
 };
 hooks.joined=()=>{show('');state='idle';hud('تم الربط ✓ (الجهاز '+mySlot+') انتظر كبسولة أو اضغط 📤 للإرسال',true);startLoop()};
 hooks.joinFail=()=>{$('bConn').disabled=false};
+hooks.note=toast;
 $('bNext').onclick=()=>{show('sBuild');renderTargets()};
 $('bConn').onclick=joinNow;
 $('room').addEventListener('keydown',e=>{if(e.key==='Enter')joinNow()});
@@ -391,7 +392,7 @@ async function sendFile(p,tg){
   const CH=131072;let off=0;
   try{
     while(off<p.size){
-      const c=conns[tg];if(!c||!c.open)throw 0;
+      const c=isHost?conns[tg]:hostConn;if(!c||!c.open)throw 0;
       const dc=c.dataChannel||c._dc;
       if((c.bufferSize||0)>120||(dc&&dc.bufferedAmount>4e6)){await new Promise(r=>setTimeout(r,40));continue}
       const ab=await p.file.slice(off,off+CH).arrayBuffer();
@@ -399,7 +400,7 @@ async function sendFile(p,tg){
       hud('جارٍ إرسال الملف… '+Math.round(off/p.size*100)+'%  (أبقِ هذه الصفحة مفتوحة)',true,false);
     }
     sendTo(tg,{t:'done'});hud('اكتمل إرسال الملف ✓',true,false);
-  }catch(e){hud('انقطع إرسال الملف',false,false)}
+  }catch(e){sendTo(tg,{t:'fail'});hud('انقطع إرسال الملف',false,false)}
 }
 function spawn(){
   orb.hw=Math.min(W*.32,120);orb.hh=46;orb.x=W/2;orb.y=H*.5;orb.vx=orb.vy=0;orb.vis=true;
@@ -421,6 +422,7 @@ hooks.onMsg=(from,d)=>{
     orb.vis=false;state='idle';hud(mySlot===d.origin?'✓ تم استلام الكبسولة':'تم الربط ✓ (الجهاز '+mySlot+') انتظر كبسولة أو اضغط 📤 للإرسال',true)
     return;
   }
+  if(d.t==='fail'){payload=null;recvParts=[];if(state==='gather'||state==='glide'){state='idle';orb.vis=false;gather=[]}toast('فشل استلام الملف من الجهاز '+from);hud('تم الربط ✓ (الجهاز '+mySlot+')',true);return}
   if(d.t==='hide'){if(state==='incoming'){orb.vis=false;state='idle'}return}
   if(d.t==='busy'){toast('الجهاز '+from+' مشغول بكبسولة أخرى');if(state==='gone'){state='idle';hud('تم الربط ✓ (الجهاز '+mySlot+')',true)}return}
   if(busyNow()){if(d.t==='own')sendTo(d.origin,{t:'busy'});return}
