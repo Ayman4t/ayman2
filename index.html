@@ -63,7 +63,7 @@ input.num{font-size:34px;letter-spacing:12px;font-weight:700;direction:ltr;text-
 <body>
 <canvas id="cv"></canvas>
 <div id="flash"></div>
-<div id="hud"><span><i class="dot" id="hdot"></i><b id="htxt"></b></span><button id="bBack" style="display:none">تعديل الحمولة</button></div>
+<div id="hud"><span><i class="dot" id="hdot"></i><b id="htxt"></b></span><button id="bBack" style="display:none">تجهيز جديد</button></div>
 <div id="toast"></div>
 
 <section class="screen on" id="sRole">
@@ -71,8 +71,8 @@ input.num{font-size:34px;letter-spacing:12px;font-weight:700;direction:ltr;text-
     <h1>SlingDrop</h1>
     <div class="brand">AymanStack</div>
     <p class="sub">راجمة الملفات العابرة للشاشات<br>اقذف صورة أو ملفاً أو رابطاً من هاتف إلى هاتف بإصبعك</p>
-    <button class="btn" id="bSend">الهاتف الأول (اليسار - القاذف)<small>تجهّز الحمولة وتقذف الكبسولة</small></button>
-    <button class="btn v" id="bRecv">الهاتف الثاني (اليمين - المستقبِل)<small>تدخل كود الربط وتستلم الحمولة</small></button>
+    <button class="btn" id="bSend">إنشاء غرفة<small>ينشئ كود الربط، وكل الأجهزة (حتى 5) ترسل وتستقبل</small></button>
+    <button class="btn v" id="bRecv">الانضمام بكود<small>أدخل كود الغرفة، وسترسل وتستقبل مثل أي جهاز</small></button>
   </div>
 </section>
 
@@ -80,7 +80,7 @@ input.num{font-size:34px;letter-spacing:12px;font-weight:700;direction:ltr;text-
   <div class="box">
     <div class="label">كود الربط</div>
     <div class="code" id="code">····</div>
-    <p class="sub" id="csub" style="margin:6px 0 0">أدخل هذا الكود في الهاتف الثاني</p>
+    <p class="sub" style="margin:6px 0 0">أدخل هذا الكود في بقية الأجهزة (حتى 5 أجهزة)</p>
     <div class="status"><i class="dot wait" id="sdot"></i><span id="sst">جارٍ إنشاء الغرفة…</span></div>
     <button class="btn g" id="bNext" disabled>متابعة وتجهيز الحمولة</button>
   </div>
@@ -89,7 +89,7 @@ input.num{font-size:34px;letter-spacing:12px;font-weight:700;direction:ltr;text-
 <section class="screen" id="sBuild">
   <div class="box">
     <h1 style="font-size:30px">جهّز الكبسولة</h1>
-    <div class="status" style="margin-top:6px"><i class="dot ok" id="bdot"></i><span id="bst">متصل بالهاتف الثاني</span></div>
+    <div class="status" style="margin-top:6px"><i class="dot ok" id="bdot"></i><span id="bst">بانتظار بقية الأجهزة</span></div>
     <div class="tabs">
       <button class="tab on" data-p="pFile">صورة / ملف</button>
       <button class="tab" data-p="pLink">رابط / نص</button>
@@ -113,8 +113,8 @@ input.num{font-size:34px;letter-spacing:12px;font-weight:700;direction:ltr;text-
 
 <section class="screen" id="sRecv">
   <div class="box">
-    <h1 style="font-size:32px">الهاتف الثاني</h1>
-    <p class="sub">ضع هذا الهاتف على يمين الهاتف الأول، ثم أدخل الكود الظاهر عليه</p>
+    <h1 style="font-size:32px">الانضمام إلى غرفة</h1>
+    <p class="sub">رتّب الأجهزة جنباً إلى جنب حسب أرقامها، ثم أدخل الكود الظاهر على جهاز المضيف</p>
     <input id="room" class="num" inputmode="numeric" maxlength="4" placeholder="0000" autocomplete="off">
     <div class="status"><i class="dot" id="rdot"></i><span id="rst">أدخل الكود المكوّن من 4 أرقام</span></div>
     <button class="btn" id="bConn">اتصال</button>
@@ -130,7 +130,6 @@ const $=id=>document.getElementById(id);
 const cv=$('cv'),ctx=cv.getContext('2d');
 const COLORS=['#00f3ff','#7c3aed','#10b981'];
 const PREFIX='slingdrop-ayman-',MAX=6*1024*1024,MAXF=200*1024*1024;
-const MAXDEV=8;   // max receiving devices per room (change this number to allow more/less)
 /* ---- Internet-wide connectivity (STUN + TURN relay) ---- */
 let METERED_APP='',METERED_KEY='';   // or open the site as  ?turn=APPNAME:APIKEY  (saved on that phone)
 try{const q=new URLSearchParams(location.search).get('turn');if(q)localStorage.setItem('qturn',q);const v=(q||localStorage.getItem('qturn')||'').split(':');METERED_APP=v[0]||METERED_APP;METERED_KEY=v[1]||METERED_KEY}catch(e){}
@@ -186,8 +185,8 @@ let W=0,H=0,dpr=1;
 function resize(){dpr=Math.min(devicePixelRatio||1,2);W=innerWidth;H=innerHeight;cv.width=W*dpr;cv.height=H*dpr;ctx.setTransform(dpr,0,0,dpr,0,0)}
 addEventListener('resize',resize);resize();
 
-let role=null,peer=null,conn=null,connected=false,conns=[],resets=new Set(),roomFull=false;
-let payload=null,meta=null,filePay=null,recvParts=[],recvBytes=0;
+let role=null,peer=null,conn=null,connected=false;
+let payload=null,meta=null,filePay=null,recvParts=[],recvBytes=0,outPay=null;
 const orb={x:0,y:0,vx:0,vy:0,hw:110,hh:44,vis:false};
 let state='idle',dragging=false,flying=false,ptr={x:0,y:0},sentVisible=false,lastPkt=0,gatherT=0;
 let trail=[],particles=[],rings=[],gather=[],raf=0;
@@ -195,64 +194,134 @@ let trail=[],particles=[],rings=[],gather=[],raf=0;
 /* ---------- helpers ---------- */
 const show=id=>document.querySelectorAll('.screen').forEach(s=>s.classList.toggle('on',s.id===id));
 function hud(txt,ok,back){$('hud').style.display='flex';$('htxt').textContent=txt;$('hdot').className='dot '+(ok?'ok':'wait');$('bBack').style.display=back?'inline-flex':'none'}
-const liveConns=()=>conns.filter(c=>c.open);
-const send=o=>{if(role==='send'){liveConns().forEach(c=>{try{c.send(o)}catch(e){}})}else if(conn&&conn.open)try{conn.send(o)}catch(e){}};
+const send=o=>{if(conn&&conn.open)try{conn.send(o)}catch(e){}};
 const fmt=b=>b<1024?b+' بايت':b<1048576?(b/1024).toFixed(1)+' ك.ب':(b/1048576).toFixed(2)+' م.ب';
 let tt;function toast(s){const t=$('toast');t.textContent=s;t.classList.add('on');clearTimeout(tt);tt=setTimeout(()=>t.classList.remove('on'),2000)}
 function el(tag,cls,txt){const e=document.createElement(tag);if(cls)e.className=cls;if(txt!=null)e.textContent=txt;return e}
 function normUrl(s){s=(s||'').trim();if(/\s/.test(s)||!s)return null;if(/^https?:\/\//i.test(s))return s;if(/^[\w-]+(\.[\w-]+)+(\/\S*)?$/.test(s))return 'https://'+s;return null}
 const isUrl=s=>!!normUrl(s);
 
-/* ---------- roles & pairing ---------- */
-$('bSend').onclick=()=>{role='send';show('sSend');startSender()};
-$('bRecv').onclick=()=>{role='recv';show('sRecv');$('room').focus()};
-
-function startSender(attempt=0){if(!iceDone){setTimeout(()=>startSender(attempt),300);return}
-  const code=String(Math.floor(1000+Math.random()*9000));
-  $('code').textContent=code;$('csub').textContent='أدخل هذا الكود في الأجهزة الأخرى (حتى '+MAXDEV+' أجهزة)';
-  if(typeof Peer==='undefined'){$('sst').textContent='تعذّر تحميل PeerJS، تحقق من الإنترنت';return}
-  peer=new Peer(PREFIX+code,PEER_OPTS());
-  peer.on('open',()=>$('sst').textContent='بانتظار الهاتف الثاني…');
-  peer.on('error',e=>{if(e.type==='unavailable-id'&&attempt<6){peer.destroy();startSender(attempt+1)}else $('sst').textContent='خطأ في الاتصال: '+e.type});
-  peer.on('connection',c=>{
-    if(liveConns().length>=MAXDEV){c.on('open',()=>{try{c.send({t:'full'})}catch(e){}setTimeout(()=>c.close(),400)});return}
-    conns.push(c);watchIce(c,'sst');
-    c.on('open',refreshDevices);
-    c.on('data',d=>{if(d.t==='reset'){resets.add(c);if(resets.size>=liveConns().length)backToBuilder()}});
-    c.on('close',()=>{conns=conns.filter(x=>x!==c);resets.delete(c);refreshDevices()});
-    c.on('error',()=>{conns=conns.filter(x=>x!==c);refreshDevices()});
+/* ---------- Mesh: up to 5 devices in a row, the host relays between them ---------- */
+const MAXN=5;
+let isHost=false,roomCode='';
+let mySlot=1,hostSlot=1,joinSlot=2,roster={},conns={},hostConn=null;
+const hooks={onMsg(){},roster(){},joined(){},joinFail(){},note(){}};
+const $st=(id,t)=>{const e=document.getElementById(id);if(e)e.textContent=t};
+const $dot=(id,c)=>{const e=document.getElementById(id);if(e)e.className='dot '+c};
+const nb=d=>{let b=null;for(const k in roster){const s=+k;if(s===mySlot)continue;if(d>0?s>mySlot:s<mySlot){if(b===null||(d>0?s<b:s>b))b=s}}return b===null?null:{slot:b,w:roster[b].w,h:roster[b].h}};
+function sendTo(to,m){
+  if(to===mySlot)return;
+  if(isHost){const c=conns[to];if(c&&c.open)try{c.send({k:'relay',from:mySlot,m})}catch(e){}}
+  else if(hostConn&&hostConn.open)try{hostConn.send({k:'relay',to,from:mySlot,m})}catch(e){}
+}
+const broadcast=m=>{for(const k in roster)if(+k!==mySlot)sendTo(+k,m)};
+function refresh(){
+  const n=Object.keys(roster).length;connected=n>1;
+  if(isHost){$st('sst',connected?'متصل: '+n+' أجهزة ✓ (يمكن انضمام '+(MAXN-n)+' أخرى)':'بانتظار بقية الأجهزة…');$dot('sdot',connected?'ok':'wait')}
+  hooks.roster(n);
+}
+function pushRoster(){for(const s in conns){const c=conns[s];if(c.open)try{c.send({k:'roster',roster})}catch(e){}}}
+function hostAccept(c){
+  c.on('data',d=>{
+    if(d.k==='join'&&!c._slot){
+      let s=+d.slot;if(!(s>=1&&s<=MAXN)||s===mySlot||conns[s])s=null;
+      if(s===null)for(let i=1;i<=MAXN;i++)if(i!==mySlot&&!conns[i]){s=i;break}
+      if(s===null){try{c.send({k:'full'})}catch(e){}setTimeout(()=>c.close(),400);return}
+      c._slot=s;conns[s]=c;roster[s]={w:d.w,h:d.h};
+      try{c.send({k:'welcome',slot:s,roster})}catch(e){}
+      pushRoster();refresh();hooks.note('📲 انضم جهاز جديد (الموضع '+s+')');
+    }else if(d.k==='dim'&&c._slot){roster[c._slot]={w:d.w,h:d.h};pushRoster();refresh()}
+    else if(d.k==='relay'){
+      if(d.to===mySlot)hooks.onMsg(d.from,d.m);
+      else{const t=conns[d.to];if(t&&t.open)try{t.send({k:'relay',from:d.from,m:d.m})}catch(e){}}
+    }
   });
+  c.on('close',()=>{if(c._slot&&conns[c._slot]===c){delete conns[c._slot];delete roster[c._slot];pushRoster();refresh();hooks.note('غادر جهاز الغرفة')}});
 }
-function refreshDevices(){
-  const n=liveConns().length;connected=n>0;
-  if(n){
-    $('sdot').className='dot ok';$('sst').textContent='تم ربط '+n+' من '+MAXDEV+' أجهزة ✓ (يمكن إضافة المزيد)';
-    $('bNext').disabled=false;$('bdot').className='dot ok';$('bst').textContent='متصل بـ '+n+' جهاز';
-    if(state==='play')hud('اسحب الكبسولة أو اقذفها نحو الحافة اليمنى ('+n+' جهاز)',true,true);
-  }else{
-    $('sdot').className='dot wait';$('sst').textContent='انقطع الاتصال، بانتظار الأجهزة…';$('bNext').disabled=true;
-    $('bdot').className='dot wait';$('bst').textContent='انقطع الاتصال';
-    if(state==='play')hud('انقطع الاتصال',false,true);
-  }
+function meshHost(attempt=0){
+  if(!iceDone){setTimeout(()=>meshHost(attempt),300);return}
+  isHost=true;mySlot=hostSlot;roster={};roster[mySlot]={w:W,h:H};conns={};
+  roomCode=String(Math.floor(1000+Math.random()*9000));$('code').textContent=roomCode;
+  if(typeof Peer==='undefined'){$st('sst','تعذّر تحميل PeerJS، تحقق من الإنترنت');return}
+  peer=new Peer(PREFIX+roomCode,PEER_OPTS());
+  peer.on('open',()=>{$st('sst','بانتظار بقية الأجهزة…');refresh()});
+  peer.on('error',e=>{if(e.type==='unavailable-id'&&attempt<6){peer.destroy();meshHost(attempt+1)}else $st('sst','خطأ في الاتصال: '+e.type)});
+  peer.on('connection',c=>{watchIce(c,'sst');hostAccept(c)});
 }
-$('bNext').onclick=()=>show('sBuild');
+function meshJoin(code){
+  if(!iceDone){setTimeout(()=>meshJoin(code),300);return}
+  isHost=false;roster={};hostConn=null;$st('rst','جارٍ الاتصال…');$dot('rdot','wait');
+  if(peer)try{peer.destroy()}catch(e){}
+  const fail=t=>{$st('rst',t);$dot('rdot','');hooks.joinFail()};
+  const tm=setTimeout(()=>{if(!connected)fail('تعذّر الاتصال. تحقق من الكود وجرّب مرة أخرى، وأوقف الـ VPN إن وُجد')},25000);
+  peer=new Peer(undefined,PEER_OPTS());
+  peer.on('open',()=>{
+    const c=hostConn=peer.connect(PREFIX+code,{reliable:true});watchIce(c,'rst');
+    c.on('open',()=>c.send({k:'join',slot:joinSlot,w:W,h:H}));
+    c.on('data',d=>{
+      if(d.k==='welcome'){clearTimeout(tm);mySlot=d.slot;roster=d.roster;connected=true;$dot('rdot','ok');
+        if(d.slot!==joinSlot)hooks.note('تم وضع جهازك في الموضع '+d.slot);hooks.joined();refresh()}
+      else if(d.k==='roster'){roster=d.roster;refresh()}
+      else if(d.k==='relay')hooks.onMsg(d.from,d.m);
+      else if(d.k==='full'){clearTimeout(tm);fail('الغرفة ممتلئة (الحد الأقصى 5 أجهزة)')}
+    });
+    c.on('close',()=>{if(connected){connected=false;roster={};hooks.roster(0);hooks.note('انقطع الاتصال بالغرفة')}});
+  });
+  peer.on('error',e=>{clearTimeout(tm);fail(e.type==='peer-unavailable'?'الكود غير صحيح أو الغرفة غير موجودة':'خطأ في الاتصال: '+e.type)});
+}
+function setDims(){
+  if(isHost){if(roster[mySlot]){roster[mySlot]={w:W,h:H};pushRoster();refresh()}}
+  else if(hostConn&&hostConn.open)try{hostConn.send({k:'dim',w:W,h:H})}catch(e){}
+}
+(()=>{const s=document.createElement('style');s.textContent='.slotrow{display:flex;gap:6px;direction:ltr}.sl{flex:1;font:inherit;font-weight:700;font-size:18px;color:#8a94b8;background:rgba(14,16,40,.7);border:1.5px solid rgba(255,255,255,.15);border-radius:12px;padding:8px 0;cursor:pointer}.sl.on{color:#fff;border-color:#00f3ff;box-shadow:0 0 14px rgba(0,243,255,.5);background:rgba(0,243,255,.16)}.sl:disabled{opacity:.45;cursor:default}';document.head.append(s)})();
+function slotChips(before,label,def,cb){
+  const w=document.createElement('div');w.style.cssText='margin:10px 0 4px;text-align:center';
+  const l=document.createElement('div');l.style.cssText='color:#8a94b8;font-size:14px;margin-bottom:6px';l.textContent=label;
+  const r=document.createElement('div');r.className='slotrow';
+  for(let i=1;i<=MAXN;i++){const b=document.createElement('button');b.type='button';b.className='sl'+(i===def?' on':'');b.textContent=i;
+    b.onclick=()=>{r.querySelectorAll('.sl').forEach(x=>x.classList.toggle('on',x===b));cb(i)};r.append(b)}
+  w.append(l,r);before.before(w);
+}
+const SLOT_LABEL='ترتيب هذا الجهاز في الصف (من اليسار)';
+const hostChips=()=>slotChips($('code').previousElementSibling,SLOT_LABEL,1,s=>{hostSlot=s;if(isHost&&!Object.keys(conns).length){mySlot=s;roster={};roster[s]={w:W,h:H};refresh()}});
+const joinChips=()=>slotChips($('room'),SLOT_LABEL,2,s=>{joinSlot=s});
 
-$('bConn').onclick=connectReceiver;
-$('room').addEventListener('keydown',e=>{if(e.key==='Enter')connectReceiver()});
-function connectReceiver(){if(!iceDone){setTimeout(connectReceiver,300);return}
+const startLoop=()=>{if(!raf)raf=requestAnimationFrame(loop)};
+addEventListener('resize',()=>{clearTimeout(window.__rt);window.__rt=setTimeout(setDims,250)});
+hostChips();joinChips();
+let target=null;
+const tgBox=document.createElement('div');tgBox.style.cssText='margin-top:14px';$('bGo').before(tgBox);
+function renderTargets(){
+  tgBox.textContent='';
+  const l=document.createElement('div');l.style.cssText='color:#8a94b8;font-size:14px;margin-bottom:6px;text-align:center';l.textContent='إرسال إلى الجهاز (مرتبة من اليسار)';
+  const r=document.createElement('div');r.className='slotrow';
+  const slots=Object.keys(roster).map(Number).sort((a,b)=>a-b);
+  slots.forEach(s=>{const b=document.createElement('button');b.type='button';b.className='sl'+(s===target?' on':'');
+    b.textContent=s===mySlot?'أنا':s;b.disabled=s===mySlot;b.onclick=()=>{target=s;renderTargets()};r.append(b)});
+  tgBox.append(l,r);
+  if(target==null||!roster[target]||target===mySlot){const f=slots.find(s=>s!==mySlot);if(f!=null&&f!==target){target=f;renderTargets()}}
+}
+
+/* ---------- roles & pairing ---------- */
+$('bSend').onclick=()=>{role='send';show('sSend');meshHost();startLoop()};
+$('bRecv').onclick=()=>{role='recv';show('sRecv');$('room').focus()};
+hooks.roster=n=>{
+  {
+    $('bNext').disabled=!connected;$('bdot').className='dot '+(connected?'ok':'wait');
+    $('bst').textContent=connected?'متصل: '+n+' أجهزة':'لا توجد أجهزة متصلة';
+    renderTargets();if(!connected&&state==='play')hud('انقطع الاتصال',false,true);
+  }
+};
+hooks.joined=()=>{show('');state='idle';hud('تم الربط ✓ (الجهاز '+mySlot+') انتظر كبسولة أو اضغط 📤 للإرسال',true);startLoop()};
+hooks.joinFail=()=>{$('bConn').disabled=false};
+$('bNext').onclick=()=>{show('sBuild');renderTargets()};
+$('bConn').onclick=joinNow;
+$('room').addEventListener('keydown',e=>{if(e.key==='Enter')joinNow()});
+function joinNow(){
   const code=$('room').value.trim();
   if(!/^\d{4}$/.test(code)){$('rst').textContent='الكود يجب أن يكون 4 أرقام';return}
   if(typeof Peer==='undefined'){$('rst').textContent='تعذّر تحميل PeerJS، تحقق من الإنترنت';return}
-  roomFull=false;$('rdot').className='dot wait';$('rst').textContent='جارٍ الاتصال…';$('bConn').disabled=true;setTimeout(()=>{if(!connected){$('rst').textContent='تعذّر الاتصال. تحقق من الكود وجرّب مرة أخرى، وأوقف الـ VPN إن وُجد';$('rdot').className='dot';$('bConn').disabled=false}},25000);
-  if(peer)peer.destroy();
-  peer=new Peer(undefined,PEER_OPTS());
-  peer.on('open',()=>{
-    conn=peer.connect(PREFIX+code,{reliable:true});watchIce(conn,'rst');
-    conn.on('open',()=>{connected=true;$('rdot').className='dot ok';show('');state='idle';hud('تم الربط ✓ انتظر وصول الكبسولة من الهاتف الأول',true);if(!raf)raf=requestAnimationFrame(loop)});
-    conn.on('data',onRecv);
-    conn.on('close',()=>{if(roomFull)return;connected=false;hud('انقطع الاتصال',false)});
-  });
-  peer.on('error',e=>{$('bConn').disabled=false;$('rdot').className='dot';$('rst').textContent=e.type==='peer-unavailable'?'الكود غير صحيح أو الغرفة غير موجودة':'خطأ في الاتصال: '+e.type});
+  $('bConn').disabled=true;meshJoin(code);
 }
 
 /* ---------- payload builder ---------- */
@@ -294,72 +363,91 @@ function buildPayload(){
   const tab=document.querySelector('.tab.on').dataset.p;
   if(tab==='pFile'){
     if(!filePay){toast('اختر صورة أو ملفاً أولاً');return false}
-    payload=filePay;
+    outPay=filePay;
     meta={icon:filePay.kind==='image'?'🖼️':'📄',label:filePay.kind==='image'?'صورة':filePay.name,sub:fmt(filePay.size)};
   }else if(tab==='pLink'){
     const t=$('ltxt').value.trim();if(!t){toast('اكتب رابطاً أو نصاً أولاً');return false}
-    payload={kind:'link',text:t,size:new Blob([t]).size};
-    meta={icon:isUrl(t)?'🔗':'📝',label:isUrl(t)?'رابط':'نص',sub:fmt(payload.size)};
+    outPay={kind:'link',text:t,size:new Blob([t]).size};
+    meta={icon:isUrl(t)?'🔗':'📝',label:isUrl(t)?'رابط':'نص',sub:fmt(outPay.size)};
   }else{
     const n=$('vn').value.trim(),p=$('vp').value.trim(),l=$('vl').value.trim();
     if(!n){toast('أدخل الاسم على الأقل');return false}
     const u=normUrl(l)||l;
     const vcf=['BEGIN:VCARD','VERSION:3.0','FN:'+n,'N:;'+n+';;;',p?'TEL;TYPE=CELL:'+p:'',u?'URL:'+u:'','END:VCARD'].filter(Boolean).join('\r\n');
-    payload={kind:'vcard',name:n,phone:p,link:u,vcf,size:vcf.length};
+    outPay={kind:'vcard',name:n,phone:p,link:u,vcf,size:vcf.length};
     meta={icon:'👤',label:n,sub:'كارت شخصي'};
   }
   return true;
 }
 $('bGo').onclick=()=>{
-  if(!connected){toast('الهاتف الثاني غير متصل');return}
+  if(!connected){toast('لا توجد أجهزة متصلة');return}
+  if(target==null||!roster[target]){toast('اختر الجهاز المستلم أولاً');return}
   if(!buildPayload())return;
-  show('');spawn();hud('اسحب الكبسولة أو اقذفها نحو الحافة اليمنى',true,true);
-  if(!raf)raf=requestAnimationFrame(loop);
+  show('');spawn();hud('اقذف الكبسولة نحو '+(target>mySlot?'اليمين ▶':'◀ اليسار')+' (الجهاز '+target+')',true,true);startLoop();
 };
-$('bBack').onclick=()=>{send({t:'hide'});backToBuilder()};
-async function sendFile(p){
-  send({t:'payload',p:{kind:'file',name:p.name,mime:p.mime,size:p.size,chunked:true}});
+$('bBack').onclick=()=>{if(orb.sentTo!=null)sendTo(orb.sentTo,{t:'hide'});backToBuilder()};
+async function sendFile(p,tg){
+  sendTo(tg,{t:'payload',p:{kind:'file',name:p.name,mime:p.mime,size:p.size,chunked:true}});
   const CH=131072;let off=0;
   try{
     while(off<p.size){
-      const cs=liveConns();if(!cs.length)throw 0;
-      if(cs.some(c=>{const dc=c.dataChannel||c._dc;return (c.bufferSize||0)>120||(dc&&dc.bufferedAmount>4e6)})){await new Promise(r=>setTimeout(r,40));continue}
+      const c=conns[tg];if(!c||!c.open)throw 0;
+      const dc=c.dataChannel||c._dc;
+      if((c.bufferSize||0)>120||(dc&&dc.bufferedAmount>4e6)){await new Promise(r=>setTimeout(r,40));continue}
       const ab=await p.file.slice(off,off+CH).arrayBuffer();
-      cs.forEach(c=>{try{c.send({t:'c',d:ab})}catch(e){}});off+=ab.byteLength;
-      hud('جارٍ إرسال الملف إلى '+cs.length+' جهاز… '+Math.round(off/p.size*100)+'%  (أبقِ هذه الصفحة مفتوحة)',true,false);
+      sendTo(tg,{t:'c',d:ab});off+=ab.byteLength;
+      hud('جارٍ إرسال الملف… '+Math.round(off/p.size*100)+'%  (أبقِ هذه الصفحة مفتوحة)',true,false);
     }
-    send({t:'done'});hud('اكتمل إرسال الملف ✓',true,true);
-  }catch(e){hud('انقطع إرسال الملف',false,true)}
+    sendTo(tg,{t:'done'});hud('اكتمل إرسال الملف ✓',true,false);
+  }catch(e){hud('انقطع إرسال الملف',false,false)}
 }
 function spawn(){
-  orb.hw=Math.min(W*.32,120);orb.hh=46;orb.x=W*.34;orb.y=H*.5;orb.vx=orb.vy=0;orb.vis=true;
-  state='play';trail=[];sentVisible=false;flying=false;dragging=false;resets.clear();
+  orb.hw=Math.min(W*.32,120);orb.hh=46;orb.x=W/2;orb.y=H*.5;orb.vx=orb.vy=0;orb.vis=true;
+  orb.tg=target;orb.origin=mySlot;orb.sentTo=null;
+  state='play';trail=[];flying=false;dragging=false;
 }
-function backToBuilder(){resets.clear();state='idle';orb.vis=false;trail=[];dragging=false;flying=false;sentVisible=false;$('hud').style.display='none';show('sBuild')}
+function backToBuilder(){state='idle';orb.vis=false;trail=[];dragging=false;flying=false;orb.sentTo=null;$('hud').style.display='none';show('sBuild');renderTargets()}
 
-/* ---------- receiver messages ---------- */
-function onRecv(d){
-  if(d.t==='full'){roomFull=true;connected=false;$('hud').style.display='none';show('sRecv');$('bConn').disabled=false;$('rdot').className='dot';$('rst').textContent='الغرفة ممتلئة (الحد الأقصى '+MAXDEV+' أجهزة)';return}
-  if(d.t==='payload'){payload=d.p;if(payload.chunked){payload.ready=false;recvParts=[];recvBytes=0}return}
-  if(d.t==='c'){recvParts.push(d.d);recvBytes+=(d.d.byteLength||d.d.length||0);return}
-  if(d.t==='done'){if(payload){payload.blob=new Blob(recvParts,{type:payload.mime});payload.ready=true;recvParts=[]}return}
-  if(d.meta)meta=d.meta;
-  if(state==='gather'||state==='boom'||state==='card')return;
-  if(d.t==='orb'){Object.assign(orb,{hw:d.hw,hh:d.hh,x:d.xo,y:d.yr*H,vx:d.vx,vy:d.vy,vis:true});state='incoming';lastPkt=performance.now()}
-  else if(d.t==='own'){Object.assign(orb,{hw:d.hw,hh:d.hh,x:d.xo,y:d.yr*H,vx:Math.max(d.vx,3),vy:d.vy*.3,vis:true});state='glide'}
-  else if(d.t==='hide'){orb.vis=false;state='idle'}
-}
+/* ---------- receiving (every device can receive) ---------- */
+const busyNow=()=>state==='gather'||state==='boom'||state==='card';
+const closeUI=()=>{if(document.querySelector('.screen.on'))show('')};
+const skip={};
+hooks.onMsg=(from,d)=>{
+  if(d.t==='payload'){if(busyNow()){skip[from]=1;return}skip[from]=0;payload=d.p;if(payload.chunked){payload.ready=false;recvParts=[];recvBytes=0}return}
+  if(d.t==='c'){if(skip[from])return;recvParts.push(d.d);recvBytes+=(d.d.byteLength||d.d.length||0);return}
+  if(d.t==='done'){if(skip[from])return;if(payload){payload.blob=new Blob(recvParts,{type:payload.mime});payload.ready=true;recvParts=[]}return}
+  if(d.t==='reset'){if(state==='play')return;
+    $('card').classList.remove('on');particles=[];rings=[];trail=[];gather=[];payload=null;meta=null;
+    orb.vis=false;state='idle';hud(mySlot===d.origin?'✓ تم استلام الكبسولة':'تم الربط ✓ (الجهاز '+mySlot+') انتظر كبسولة أو اضغط 📤 للإرسال',true)
+    return;
+  }
+  if(d.t==='hide'){if(state==='incoming'){orb.vis=false;state='idle'}return}
+  if(d.t==='busy'){toast('الجهاز '+from+' مشغول بكبسولة أخرى');if(state==='gone'){state='idle';hud('تم الربط ✓ (الجهاز '+mySlot+')',true)}return}
+  if(busyNow()){if(d.t==='own')sendTo(d.origin,{t:'busy'});return}
+  if(d.t==='orb'){
+    if(state!=='idle'&&state!=='incoming')return;
+    if(d.meta)meta=d.meta;closeUI();
+    Object.assign(orb,{hw:d.hw,hh:d.hh,x:d.xo,y:d.yr*H,vx:d.vx,vy:d.vy,vis:true});state='incoming';lastPkt=performance.now();
+  }else if(d.t==='own'){
+    if(state==='play'||state==='glide'||state==='pass'){sendTo(d.origin,{t:'busy'});return}
+    if(d.meta)meta=d.meta;closeUI();
+    Object.assign(orb,{hw:d.hw,hh:d.hh,x:d.xo,y:d.yr*H,vis:true,od:d.od,tg:d.tg,origin:d.origin,sentTo:null});
+    if(mySlot===d.tg){state='glide';orb.vx=d.od*Math.max(Math.abs(d.vx),3);orb.vy=d.vy*.3}
+    else{state='pass';orb.vx=d.od*Math.max(Math.abs(d.vx),9);orb.vy=d.vy*.2}
+  }
+};
 
 /* ---------- sender input ---------- */
 cv.addEventListener('pointerdown',e=>{
-  if(role!=='send'||state!=='play')return;
+  if(state!=='play')return;
   const dx=(e.clientX-orb.x)/(orb.hw*1.3),dy=(e.clientY-orb.y)/(orb.hh*2);
   if(dx*dx+dy*dy<1){dragging=true;flying=false;ptr.x=e.clientX;ptr.y=e.clientY;orb.vx=orb.vy=0;cv.setPointerCapture(e.pointerId)}
 });
 cv.addEventListener('pointermove',e=>{if(dragging){ptr.x=e.clientX;ptr.y=e.clientY}});
 const endDrag=()=>{
   if(!dragging)return;dragging=false;
-  if(connected&&(orb.vx>7||orb.x>W-orb.hw*1.2)){orb.vx=Math.max(orb.vx,11);flying=true}  // flick or edge release
+  const od=orb.tg>mySlot?1:-1;
+  if(nb(od)&&roster[orb.tg]&&(orb.vx*od>7||(od>0?orb.x>W-orb.hw*1.2:orb.x<orb.hw*1.2))){orb.vx=od*Math.max(Math.abs(orb.vx),11);flying=true}
 };
 cv.addEventListener('pointerup',endDrag);cv.addEventListener('pointercancel',endDrag);
 
@@ -415,7 +503,7 @@ function copy(s){
 function btn(txt,cls,fn){const b=el('button','btn '+cls,txt);b.onclick=fn;return b}
 function link(txt,cls,href){const a=el('a','btn '+cls,txt);a.href=href;a.target='_blank';a.rel='noopener noreferrer';return a}
 function renderCard(p){
-  const c=$('card');c.replaceChildren(el('div','t','✦ وصلت الكبسولة ✦'));
+  const c=$('card');c.replaceChildren(el('div','t','✦ وصلت الكبسولة من الجهاز '+orb.origin+' ✦'));
   if(p.kind==='image'){
     const im=el('img');im.src=p.data;c.append(im,el('div','meta',p.name+' — '+fmt(p.size)),btn('تحميل الصورة بأعلى جودة','g',()=>download(p.name,p.data)));
   }else if(p.kind==='file'){
@@ -432,48 +520,80 @@ function renderCard(p){
     const u=normUrl(p.link);if(u)c.append(link('فتح الرابط','',u));
     if(p.phone)c.append(btn('نسخ الرقم','',()=>copy(p.phone)));
   }
-  c.append(btn('إطلاق ملف جديد','v',resetReceiver));
+  c.append(btn('📤 إرسال شيء جديد','g',()=>resetReceiver(true)),btn('إغلاق','v',()=>resetReceiver(false)));
   requestAnimationFrame(()=>c.classList.add('on'));
 }
-function resetReceiver(){
+function resetReceiver(openB){
   $('card').classList.remove('on');particles=[];rings=[];trail=[];orb.vis=false;state='idle';payload=null;meta=null;
-  send({t:'reset'});hud('تم الربط ✓ انتظر وصول الكبسولة من الهاتف الأول',true);
+  broadcast({t:'reset',origin:orb.origin});hud('تم الربط ✓ (الجهاز '+mySlot+') انتظر كبسولة أو اضغط 📤 للإرسال',true);
+  if(openB===true){show('sBuild');renderTargets()}
 }
+
+/* ---------- send button (every device) ---------- */
+const fab=document.createElement('button');fab.textContent='📤 إرسال';
+fab.style.cssText="position:fixed;z-index:12;bottom:max(22px,env(safe-area-inset-bottom));left:50%;transform:translateX(-50%);display:none;font:inherit;font-weight:700;font-size:17px;color:#fff;border:1.5px solid #00f3ff;border-radius:999px;padding:13px 28px;background:rgba(14,16,40,.78);box-shadow:0 0 22px rgba(0,243,255,.45);cursor:pointer";
+document.body.append(fab);let fabOn=false;
+fab.onclick=()=>{show('sBuild');renderTargets()};
+const bb=document.createElement('button');bb.className='btn v';bb.textContent='رجوع';bb.onclick=()=>show('');$('bGo').after(bb);
 
 /* ---------- main loop ---------- */
 const t0=performance.now();
 function loop(now){
   const t=(now-t0)/1000;ctx.clearRect(0,0,W,H);
-  role==='send'?stepSender():stepReceiver(now);
+  stepSender();stepReceiver(now);{const sf=connected&&state==='idle'&&!document.querySelector('.screen.on');if(sf!==fabOn){fabOn=sf;fab.style.display=sf?'block':'none'}}
   drawTrail();
   if(orb.vis){const bob=(state==='play'&&!dragging&&!flying)?Math.sin(t*2)*3:0;drawCapsule(orb.x,orb.y+bob,orb.hw,orb.hh,t,state==='gather'?gatherScale():1)}
   drawFX();
   raf=requestAnimationFrame(loop);
 }
-function stepSender(){
-  if(state!=='play')return;
-  const {hw,hh}=orb;
-  if(dragging){
-    const nx=orb.x+(Math.min(ptr.x,W)-orb.x)*.35,ny=orb.y+(ptr.y-orb.y)*.35;
-    orb.vx=orb.vx*.6+(nx-orb.x)*.4;orb.vy=orb.vy*.6+(ny-orb.y)*.4;
-    orb.x=nx;orb.y=Math.max(hh,Math.min(H-hh,ny));
-  }else{
-    orb.x+=orb.vx;orb.y+=orb.vy;orb.vy*=.985;if(!flying)orb.vx*=.985;
-    if(connected&&flying&&orb.vx<9)orb.vx=9;
-    if(orb.x<hw){orb.x=hw;orb.vx=Math.abs(orb.vx)*.7}
-    if(!connected&&orb.x>W-hw){orb.x=W-hw;orb.vx=-Math.abs(orb.vx)*.7;flying=false}
-    if(orb.y<hh){orb.y=hh;orb.vy=Math.abs(orb.vy)*.7}
-    if(orb.y>H-hh){orb.y=H-hh;orb.vy=-Math.abs(orb.vy)*.7}
+function edgeCheck(od){
+  const N=nb(od);if(!N)return false;const hw=orb.hw;
+  const over=od>0?orb.x+hw>W:orb.x-hw<0,out=od>0?orb.x-hw>W:orb.x+hw<0;
+  const base={xo:od>0?orb.x-W:N.w+orb.x,yr:orb.y/H,hw,hh:orb.hh,vx:orb.vx,vy:orb.vy,meta};
+  if(out){
+    sendTo(N.slot,{t:'own',...base,od,tg:orb.tg,origin:orb.origin});
+    if(orb.origin===mySlot)outPay.file?sendFile(outPay,orb.tg):sendTo(orb.tg,{t:'payload',p:outPay});
+    state=orb.origin===mySlot?'gone':'idle';orb.vis=false;dragging=false;flying=false;orb.sentTo=null;if(navigator.vibrate)navigator.vibrate(40);
+    hud(orb.origin===mySlot?'عبرت الكبسولة نحو الجهاز '+orb.tg+' ✨':'مرّت الكبسولة عبر هذا الجهاز ✨',true,orb.origin===mySlot);
+    return 'out';
   }
-  pushTrail();
-  if(!connected)return;
-  const base={xo:orb.x-W,yr:orb.y/H,hw,hh,vx:orb.vx,vy:orb.vy,meta};
-  if(orb.x-hw>W){
-    send({t:'own',...base});payload.file?sendFile(payload):send({t:'payload',p:payload});   // handover, then the full payload
-    state='gone';orb.vis=false;dragging=false;flying=false;if(navigator.vibrate)navigator.vibrate(40);
-    hud('عبرت الكبسولة إلى '+liveConns().length+' جهاز ✨',true,true);
-  }else if(orb.x+hw>W){const nt=performance.now();if(nt-(orb.gt||0)>=33){send({t:'orb',...base});orb.gt=nt}sentVisible=true}
-  else if(sentVisible){send({t:'hide'});sentVisible=false}
+  if(over){
+    const nt=performance.now();
+    if(orb.sentTo!=null&&orb.sentTo!==N.slot)sendTo(orb.sentTo,{t:'hide'});
+    if(nt-(orb.gt||0)>=33){sendTo(N.slot,{t:'orb',...base});orb.gt=nt}
+    orb.sentTo=N.slot;return 'over';
+  }
+  return false;
+}
+function stepSender(){
+  const hw=orb.hw,hh=orb.hh;
+  if(state==='play'){
+    const od=orb.tg>mySlot?1:-1,open=!!nb(od)&&!!roster[orb.tg];
+    if(dragging){
+      const nx=orb.x+(Math.max(0,Math.min(ptr.x,W))-orb.x)*.35,ny=orb.y+(ptr.y-orb.y)*.35;
+      orb.vx=orb.vx*.6+(nx-orb.x)*.4;orb.vy=orb.vy*.6+(ny-orb.y)*.4;
+      orb.x=nx;orb.y=Math.max(hh,Math.min(H-hh,ny));
+    }else{
+      orb.x+=orb.vx;orb.y+=orb.vy;orb.vy*=.985;
+      if(flying)orb.vx=od*Math.max(Math.abs(orb.vx),11);else orb.vx*=.985;
+      if(open&&od>0&&orb.x>W-hw*.9&&orb.vx<7){orb.vx=7;flying=true}
+      if(open&&od<0&&orb.x<hw*.9&&orb.vx>-7){orb.vx=-7;flying=true}
+      if(orb.x<hw&&!(open&&od<0)){orb.x=hw;orb.vx=Math.abs(orb.vx)*.7;flying=false}
+      if(orb.x>W-hw&&!(open&&od>0)){orb.x=W-hw;orb.vx=-Math.abs(orb.vx)*.7;flying=false}
+      if(orb.y<hh){orb.y=hh;orb.vy=Math.abs(orb.vy)*.7}
+      if(orb.y>H-hh){orb.y=H-hh;orb.vy=-Math.abs(orb.vy)*.7}
+    }
+    pushTrail();
+    if(open){
+      const a=edgeCheck(od);if(a==='out')return;
+      if(a!=='over'&&orb.sentTo!=null){sendTo(orb.sentTo,{t:'hide'});orb.sentTo=null}
+    }
+  }else if(state==='pass'){
+    orb.x+=orb.vx;orb.y+=orb.vy;pushTrail();
+    if(!nb(orb.od)){state='idle';orb.vis=false;hud('الجهاز المستلم غير متصل',false,false);return}
+    const a=edgeCheck(orb.od);
+    if(a!=='over'&&a!=='out'&&orb.sentTo!=null){sendTo(orb.sentTo,{t:'hide'});orb.sentTo=null}
+  }
 }
 function stepReceiver(now){
   const cx=W/2,cy=H/2;
