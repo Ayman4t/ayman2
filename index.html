@@ -81,6 +81,7 @@ input.num{font-size:34px;letter-spacing:12px;font-weight:700;direction:ltr;text-
     <div class="label">كود الربط</div>
     <div class="code" id="code">····</div>
     <p class="sub" style="margin:6px 0 0">أدخل هذا الكود في بقية الأجهزة (حتى 5 أجهزة)</p>
+    <input id="hpass" type="password" placeholder="🔒 كلمة مرور للغرفة (اختياري)" maxlength="64" autocomplete="off" style="direction:ltr;text-align:center">
     <div class="status"><i class="dot wait" id="sdot"></i><span id="sst">جارٍ إنشاء الغرفة…</span></div>
     <button class="btn g" id="bNext" disabled>متابعة وتجهيز الحمولة</button>
   </div>
@@ -96,7 +97,7 @@ input.num{font-size:34px;letter-spacing:12px;font-weight:700;direction:ltr;text-
       <button class="tab" data-p="pCard">كارت شخصي</button>
     </div>
     <div class="pane on" id="pFile">
-      <label class="pick" for="fin"><b>اختر صورة أو ملفاً</b>الصور تُضغط تلقائياً لنقل أسرع، والحد الأقصى للملفات 200 ميغابايت</label>
+      <label class="pick" for="fin"><b>اختر صورة أو ملفاً</b>الصور تُضغط تلقائياً لنقل أسرع، والحد الأقصى للملفات 10 غيغابايت</label>
       <input type="file" id="fin" style="display:none">
       <img id="pv" alt="">
       <div class="label" id="finfo" style="margin-top:8px;text-align:center"></div>
@@ -116,6 +117,7 @@ input.num{font-size:34px;letter-spacing:12px;font-weight:700;direction:ltr;text-
     <h1 style="font-size:32px">الانضمام إلى غرفة</h1>
     <p class="sub">رتّب الأجهزة جنباً إلى جنب حسب أرقامها، ثم أدخل الكود الظاهر على جهاز المضيف</p>
     <input id="room" class="num" inputmode="numeric" maxlength="4" placeholder="0000" autocomplete="off">
+    <input id="rpass" type="password" placeholder="🔒 كلمة المرور (إن كانت الغرفة محمية)" maxlength="64" autocomplete="off" style="direction:ltr;text-align:center">
     <div class="status"><i class="dot" id="rdot"></i><span id="rst">أدخل الكود المكوّن من 4 أرقام</span></div>
     <button class="btn" id="bConn">اتصال</button>
   </div>
@@ -129,7 +131,7 @@ input.num{font-size:34px;letter-spacing:12px;font-weight:700;direction:ltr;text-
 const $=id=>document.getElementById(id);
 const cv=$('cv'),ctx=cv.getContext('2d');
 const COLORS=['#00f3ff','#7c3aed','#10b981'];
-const PREFIX='slingdrop-ayman-',MAX=6*1024*1024,MAXF=200*1024*1024;
+const PREFIX='slingdrop-ayman-',MAX=6*1024*1024,MAXF=10*1024*1024*1024;   // 10 GB per file
 /* ---- Internet-wide connectivity (STUN + TURN relay) ---- */
 let METERED_APP='',METERED_KEY='';   // or open the site as  ?turn=APPNAME:APIKEY  (saved on that phone)
 try{const q=new URLSearchParams(location.search).get('turn');if(q)localStorage.setItem('qturn',q);const v=(q||localStorage.getItem('qturn')||'').split(':');METERED_APP=v[0]||METERED_APP;METERED_KEY=v[1]||METERED_KEY}catch(e){}
@@ -195,7 +197,7 @@ let trail=[],particles=[],rings=[],gather=[],raf=0;
 const show=id=>document.querySelectorAll('.screen').forEach(s=>s.classList.toggle('on',s.id===id));
 function hud(txt,ok,back){$('hud').style.display='flex';$('htxt').textContent=txt;$('hdot').className='dot '+(ok?'ok':'wait');$('bBack').style.display=back?'inline-flex':'none'}
 const send=o=>{if(conn&&conn.open)try{conn.send(o)}catch(e){}};
-const fmt=b=>b<1024?b+' بايت':b<1048576?(b/1024).toFixed(1)+' ك.ب':(b/1048576).toFixed(2)+' م.ب';
+const fmt=b=>b<1024?b+' بايت':b<1048576?(b/1024).toFixed(1)+' ك.ب':b<1073741824?(b/1048576).toFixed(2)+' م.ب':(b/1073741824).toFixed(2)+' غ.ب';
 let tt;function toast(s){const t=$('toast');t.textContent=s;t.classList.add('on');clearTimeout(tt);tt=setTimeout(()=>t.classList.remove('on'),2000)}
 function el(tag,cls,txt){const e=document.createElement(tag);if(cls)e.className=cls;if(txt!=null)e.textContent=txt;return e}
 function normUrl(s){s=(s||'').trim();if(/\s/.test(s)||!s)return null;if(/^https?:\/\//i.test(s))return s;if(/^[\w-]+(\.[\w-]+)+(\/\S*)?$/.test(s))return 'https://'+s;return null}
@@ -221,9 +223,21 @@ function refresh(){
   hooks.roster(n);
 }
 function pushRoster(){for(const s in conns){const c=conns[s];if(c.open)try{c.send({k:'roster',roster})}catch(e){}}}
+let roomPass='',passFails=0,lockUntil=0;
+$('hpass').addEventListener('input',()=>{roomPass=$('hpass').value});
+const rejectConn=(c,k)=>{try{c.send({k})}catch(e){}setTimeout(()=>{try{c.close()}catch(e){}},400)};
 function hostAccept(c){
   c.on('data',d=>{
     if(d.k==='join'&&!c._slot){
+      if(roomPass){
+        if(Date.now()<lockUntil){rejectConn(c,'locked');return}
+        if(typeof d.pw!=='string'||!d.pw){rejectConn(c,'needpass');return}
+        if(d.pw!==roomPass){
+          if(++passFails>=5){passFails=0;lockUntil=Date.now()+60000;hooks.note('⚠️ محاولات كلمة مرور خاطئة: أُغلق الانضمام لدقيقة')}
+          rejectConn(c,'badpass');return;
+        }
+        passFails=0;
+      }
       let s=+d.slot;if(!(s>=1&&s<=MAXN)||s===mySlot||conns[s])s=null;
       if(s===null)for(let i=1;i<=MAXN;i++)if(i!==mySlot&&!conns[i]){s=i;break}
       if(s===null){try{c.send({k:'full'})}catch(e){}setTimeout(()=>c.close(),400);return}
@@ -231,9 +245,9 @@ function hostAccept(c){
       try{c.send({k:'welcome',slot:s,roster})}catch(e){}
       pushRoster();refresh();hooks.note('📲 انضم جهاز جديد (الموضع '+s+')');
     }else if(d.k==='dim'&&c._slot){roster[c._slot]={w:d.w,h:d.h};pushRoster();refresh()}
-    else if(d.k==='relay'){
-      if(d.to===mySlot)hooks.onMsg(d.from,d.m);
-      else{const t=conns[d.to];if(t&&t.open)try{t.send({k:'relay',from:d.from,m:d.m})}catch(e){}}
+    else if(d.k==='relay'&&c._slot){   /* only authenticated members may relay; sender slot is set by the host */
+      if(d.to===mySlot)hooks.onMsg(c._slot,d.m);
+      else{const t=conns[d.to];if(t&&t.open)try{t.send({k:'relay',from:c._slot,m:d.m})}catch(e){}}
     }
   });
   c.on('close',()=>{if(c._slot&&conns[c._slot]===c){delete conns[c._slot];delete roster[c._slot];pushRoster();refresh();hooks.note('غادر جهاز الغرفة')}});
@@ -257,13 +271,16 @@ function meshJoin(code){
   peer=new Peer(undefined,PEER_OPTS());
   peer.on('open',()=>{
     const c=hostConn=peer.connect(PREFIX+code,{reliable:true});watchIce(c,'rst');
-    c.on('open',()=>c.send({k:'join',slot:joinSlot,w:W,h:H}));
+    c.on('open',()=>c.send({k:'join',slot:joinSlot,w:W,h:H,pw:$('rpass').value}));
     c.on('data',d=>{
       if(d.k==='welcome'){clearTimeout(tm);mySlot=d.slot;roster=d.roster;connected=true;$dot('rdot','ok');
         if(d.slot!==joinSlot)hooks.note('تم وضع جهازك في الموضع '+d.slot);hooks.joined();refresh()}
       else if(d.k==='roster'){roster=d.roster;refresh()}
       else if(d.k==='relay')hooks.onMsg(d.from,d.m);
       else if(d.k==='full'){clearTimeout(tm);fail('الغرفة ممتلئة (الحد الأقصى 5 أجهزة)')}
+      else if(d.k==='needpass'){clearTimeout(tm);fail('🔒 الغرفة محمية بكلمة مرور: أدخلها ثم اضغط اتصال')}
+      else if(d.k==='badpass'){clearTimeout(tm);fail('❌ كلمة المرور غير صحيحة')}
+      else if(d.k==='locked'){clearTimeout(tm);fail('محاولات خاطئة كثيرة: انتظر دقيقة ثم أعد المحاولة')}
     });
     c.on('close',()=>{if(connected){connected=false;roster={};hooks.roster(0);hooks.note('انقطع الاتصال بالغرفة')}});
   });
@@ -339,7 +356,7 @@ $('fin').onchange=async e=>{
       filePay={kind:'image',name:f.name.replace(/\.\w+$/,'')+'.jpg',mime:'image/jpeg',data:d,size:Math.round(d.length*.75)};
       $('pv').src=d;$('pv').style.display='block';
     }else{
-      if(f.size>MAXF){$('finfo').textContent='الملف كبير جداً (الحد 200 ميغابايت)';return}
+      if(f.size>MAXF){$('finfo').textContent='الملف كبير جداً (الحد 10 غيغابايت)';return}
       filePay={kind:'file',name:f.name,mime:f.type||'application/octet-stream',file:f,size:f.size};
     }
     $('finfo').textContent=filePay.name+' — '+fmt(filePay.size);
@@ -387,20 +404,98 @@ $('bGo').onclick=()=>{
   show('');spawn();hud('اقذف الكبسولة نحو '+(target>mySlot?'اليمين ▶':'◀ اليسار')+' (الجهاز '+target+')',true,true);startLoop();
 };
 $('bBack').onclick=()=>{if(orb.sentTo!=null)sendTo(orb.sentTo,{t:'hide'});backToBuilder()};
+/* keep the screen on during long transfers (a sleeping phone kills the connection) */
+let wl=null;
+async function keepAwake(on){
+  try{
+    if(on){if(!wl&&navigator.wakeLock){wl=await navigator.wakeLock.request('screen');wl.addEventListener('release',()=>{wl=null})}}
+    else if(wl){const w=wl;wl=null;await w.release()}
+  }catch(e){wl=null}
+}
+let xfer=null;   // current outgoing transfer: {to,acked,gotAck,abort}
 async function sendFile(p,tg){
   sendTo(tg,{t:'payload',p:{kind:'file',name:p.name,mime:p.mime,size:p.size,chunked:true}});
-  const CH=131072;let off=0;
+  const CH=131072,WIN=64*1048576;let off=0;
+  const x=xfer={to:tg,acked:0,gotAck:false,abort:false};keepAwake(true);
   try{
     while(off<p.size){
+      if(x.abort)throw 0;
       const c=isHost?conns[tg]:hostConn;if(!c||!c.open)throw 0;
       const dc=c.dataChannel||c._dc;
-      if((c.bufferSize||0)>120||(dc&&dc.bufferedAmount>4e6)){await new Promise(r=>setTimeout(r,40));continue}
+      /* back-pressure: wire buffer + (once the receiver acks) a 64 MB window over what it has written to disk */
+      if((c.bufferSize||0)>120||(dc&&dc.bufferedAmount>4e6)||(x.gotAck&&off-x.acked>WIN)){await new Promise(r=>setTimeout(r,40));continue}
       const ab=await p.file.slice(off,off+CH).arrayBuffer();
       sendTo(tg,{t:'c',d:ab});off+=ab.byteLength;
-      hud('جارٍ إرسال الملف… '+Math.round(off/p.size*100)+'%  (أبقِ هذه الصفحة مفتوحة)',true,false);
+      hud('جارٍ إرسال الملف… '+Math.round(off/p.size*100)+'%  ('+fmt(off)+' / '+fmt(p.size)+') أبقِ هذه الصفحة مفتوحة',true,false);
     }
     sendTo(tg,{t:'done'});hud('اكتمل إرسال الملف ✓',true,false);
-  }catch(e){sendTo(tg,{t:'fail'});hud('انقطع إرسال الملف',false,false)}
+  }catch(e){if(!x.abort)sendTo(tg,{t:'fail'});hud(x.abort?'أوقف الجهاز المستلم الاستلام':'انقطع إرسال الملف',false,false)}
+  finally{if(xfer===x)xfer=null;keepAwake(false)}
+}
+
+/* ---------- receiving big files: stream to disk (OPFS) instead of RAM ---------- */
+const OPFS_OK=!!(navigator.storage&&navigator.storage.getDirectory&&window.FileSystemFileHandle&&FileSystemFileHandle.prototype.createWritable);
+const MEM_LIMIT=1.5*1024*1024*1024;   // browsers without a disk API must keep the file in memory/blob storage
+let sink=null;
+const removeTmp=n=>{if(n&&OPFS_OK)navigator.storage.getDirectory().then(r=>r.removeEntry(n)).catch(()=>{})};
+async function cleanTmp(keep){   // delete temp files from earlier transfers (older than 30 min)
+  if(!OPFS_OK)return;
+  try{const r=await navigator.storage.getDirectory();
+    for await(const [n] of r.entries()){if(n===keep||!/^sd-\d+-/.test(n))continue;if(Date.now()-(+n.split('-')[1])>1800000)r.removeEntry(n).catch(()=>{})}}catch(e){}
+}
+cleanTmp();
+function killSink(s){
+  if(s.dead&&!s.name)return;s.dead=true;
+  Promise.resolve().then(()=>s.w&&s.w.abort()).catch(()=>{}).then(()=>{if(!s.fin)removeTmp(s.name)});
+}
+function abortSink(s,why){
+  if(s.dead)return;
+  killSink(s);keepAwake(false);sendTo(s.from,{t:'abort',why});
+  if(sink===s){
+    payload=null;if(state==='gather'||state==='glide'||state==='incoming'){state='idle';orb.vis=false;gather=[]}
+    toast(why==='space'?'لا توجد مساحة كافية على هذا الجهاز لاستلام الملف':'تعذّر حفظ الملف على هذا الجهاز');
+    hud('تم الربط ✓ (الجهاز '+mySlot+')',true);
+  }
+}
+function openSink(p,from){
+  if(sink&&!sink.fin)killSink(sink);
+  const s=sink={from,size:p.size,got:0,ackd:0,w:null,fh:null,blob:null,name:null,fin:false,dead:false,q:Promise.resolve()};
+  keepAwake(true);
+  s.ready=(async()=>{
+    if(OPFS_OK){
+      try{
+        const est=navigator.storage.estimate?await navigator.storage.estimate():null;
+        if(est&&est.quota&&est.quota-(est.usage||0)<p.size*1.02+5e7)throw 'space';
+        const root=await navigator.storage.getDirectory();
+        s.name='sd-'+Date.now()+'-'+Math.random().toString(36).slice(2,8);
+        s.fh=await root.getFileHandle(s.name,{create:true});
+        s.w=await s.fh.createWritable();
+        cleanTmp(s.name);return;
+      }catch(e){if(e==='space')throw e;s.w=null;s.fh=null}
+    }
+    if(p.size>MEM_LIMIT)throw 'space';
+    s.blob=new Blob([],{type:p.mime});
+  })().catch(e=>abortSink(s,e==='space'?'space':'err'));
+}
+function sinkWrite(ab,from){
+  const s=sink;if(!s||s.dead||s.from!==from)return;
+  const n=ab.byteLength||ab.length||0;recvBytes+=n;
+  s.q=s.q.then(()=>s.ready).then(async()=>{
+    if(s.dead)return;
+    if(s.w)await s.w.write(ab);else s.blob=new Blob([s.blob,ab]);
+    s.got+=n;
+    if(s.got-s.ackd>=4194304){s.ackd=s.got;sendTo(s.from,{t:'ack',n:s.got})}
+  }).catch(()=>abortSink(s,'err'));
+}
+function sinkFinish(from){
+  const s=sink,p=payload;if(!s||s.dead||s.from!==from||!p)return;
+  s.q=s.q.then(()=>s.ready).then(async()=>{
+    if(s.dead)return;
+    if(s.w){await s.w.close();s.w=null;p.blob=await s.fh.getFile()}else p.blob=s.blob;
+    if(p.blob.size!==p.size)throw 0;
+    s.fin=true;keepAwake(false);
+    if(payload===p)p.ready=true;
+  }).catch(()=>abortSink(s,'err'));
 }
 function spawn(){
   orb.hw=Math.min(W*.32,120);orb.hh=46;orb.x=W/2;orb.y=H*.5;orb.vx=orb.vy=0;orb.vis=true;
@@ -414,15 +509,17 @@ const busyNow=()=>state==='gather'||state==='boom'||state==='card';
 const closeUI=()=>{if(document.querySelector('.screen.on'))show('')};
 const skip={};
 hooks.onMsg=(from,d)=>{
-  if(d.t==='payload'){if(busyNow()){skip[from]=1;return}skip[from]=0;payload=d.p;if(payload.chunked){payload.ready=false;recvParts=[];recvBytes=0}return}
-  if(d.t==='c'){if(skip[from])return;recvParts.push(d.d);recvBytes+=(d.d.byteLength||d.d.length||0);return}
-  if(d.t==='done'){if(skip[from])return;if(payload){payload.blob=new Blob(recvParts,{type:payload.mime});payload.ready=true;recvParts=[]}return}
+  if(d.t==='ack'){if(xfer&&xfer.to===from){xfer.acked=d.n;xfer.gotAck=true}return}
+  if(d.t==='abort'){if(xfer&&xfer.to===from){xfer.abort=true;toast(d.why==='space'?'الجهاز '+from+' لا يملك مساحة كافية للملف':'تعذّر على الجهاز '+from+' حفظ الملف')}return}
+  if(d.t==='payload'){if(busyNow()){skip[from]=1;return}skip[from]=0;payload=d.p;if(payload.chunked){payload.ready=false;recvBytes=0;openSink(payload,from)}return}
+  if(d.t==='c'){if(skip[from])return;sinkWrite(d.d,from);return}
+  if(d.t==='done'){if(skip[from])return;sinkFinish(from);return}
   if(d.t==='reset'){if(state==='play')return;
     $('card').classList.remove('on');particles=[];rings=[];trail=[];gather=[];payload=null;meta=null;
     orb.vis=false;state='idle';hud(mySlot===d.origin?'✓ تم استلام الكبسولة':'تم الربط ✓ (الجهاز '+mySlot+') انتظر كبسولة أو اضغط 📤 للإرسال',true)
     return;
   }
-  if(d.t==='fail'){payload=null;recvParts=[];if(state==='gather'||state==='glide'){state='idle';orb.vis=false;gather=[]}toast('فشل استلام الملف من الجهاز '+from);hud('تم الربط ✓ (الجهاز '+mySlot+')',true);return}
+  if(d.t==='fail'){if(sink&&!sink.fin)killSink(sink);keepAwake(false);payload=null;if(state==='gather'||state==='glide'){state='idle';orb.vis=false;gather=[]}toast('فشل استلام الملف من الجهاز '+from);hud('تم الربط ✓ (الجهاز '+mySlot+')',true);return}
   if(d.t==='hide'){if(state==='incoming'){orb.vis=false;state='idle'}return}
   if(d.t==='busy'){toast('الجهاز '+from+' مشغول بكبسولة أخرى');if(state==='gone'){state='idle';hud('تم الربط ✓ (الجهاز '+mySlot+')',true)}return}
   if(busyNow()){if(d.t==='own')sendTo(d.origin,{t:'busy'});return}
