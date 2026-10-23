@@ -131,7 +131,7 @@ input.num{font-size:34px;letter-spacing:12px;font-weight:700;direction:ltr;text-
 const $=id=>document.getElementById(id);
 const cv=$('cv'),ctx=cv.getContext('2d');
 const COLORS=['#00f3ff','#7c3aed','#10b981'];
-const PREFIX='slingdrop-ayman-',MAX=6*1024*1024,MAXF=10*1024*1024*1024;   // 10 GB per file
+const PREFIX='slingdrop-ayman2-',MAX=6*1024*1024,MAXF=10*1024*1024*1024;   // 10 GB per file
 /* ---- Internet-wide connectivity (STUN + TURN relay) ---- */
 let METERED_APP='',METERED_KEY='';   // or open the site as  ?turn=APPNAME:APIKEY  (saved on that phone)
 try{const q=new URLSearchParams(location.search).get('turn');if(q)localStorage.setItem('qturn',q);const v=(q||localStorage.getItem('qturn')||'').split(':');METERED_APP=v[0]||METERED_APP;METERED_KEY=v[1]||METERED_KEY}catch(e){}
@@ -207,14 +207,37 @@ const isUrl=s=>!!normUrl(s);
 const MAXN=5;
 let isHost=false,roomCode='';
 let mySlot=1,hostSlot=1,joinSlot=2,roster={},conns={},hostConn=null;
-const hooks={onMsg(){},roster(){},joined(){},joinFail(){},note(){}};
+const hooks={onMsg(){},onFrame(){},roster(){},joined(){},joinFail(){},note(){}};
 const $st=(id,t)=>{const e=document.getElementById(id);if(e)e.textContent=t};
 const $dot=(id,c)=>{const e=document.getElementById(id);if(e)e.className='dot '+c};
 const nb=d=>{let b=null;for(const k in roster){const s=+k;if(s===mySlot)continue;if(d>0?s>mySlot:s<mySlot){if(b===null||(d>0?s<b:s>b))b=s}}return b===null?null:{slot:b,w:roster[b].w,h:roster[b].h}};
+/* ---------- fast wire format ----------
+   control messages = JSON strings; file data = raw binary frames [1][to][from][0][payload...]
+   (PeerJS 'raw' mode: no msgpack, no 16 KB re-chunking; the host re-addresses frames in place, no copy) */
+const HDR=4;
+const jsend=(c,o)=>{try{c.send(JSON.stringify(o));return true}catch(e){return false}};
+function fixChannel(c){try{const dc=c.dataChannel||c._dc;if(dc){dc.binaryType='arraybuffer';dc.bufferedAmountLowThreshold=1048576}}catch(e){}}
+function sendFrame(to,f){
+  const c=isHost?conns[to]:hostConn;if(!c||!c.open)return false;
+  f[0]=1;f[1]=to;f[2]=mySlot;
+  try{c.send(f.buffer);return true}catch(e){return false}
+}
+/* CRC-32 (slicing-by-8) - end-to-end check that every byte arrived intact */
+const CRC_T=(()=>{const t=new Int32Array(2048);for(let n=0;n<256;n++){let c=n;for(let k=0;k<8;k++)c=c&1?(c>>>1)^0xEDB88320:c>>>1;t[n]=c}
+  for(let n=0;n<256;n++){let c=t[n];for(let k=1;k<8;k++){c=t[c&255]^(c>>>8);t[k*256+n]=c}}return t})();
+function crc32(u,crc){
+  const t=CRC_T,n=u.length;let c=~(crc||0),i=0;
+  for(;i+8<=n;i+=8){
+    const a=c^(u[i]|u[i+1]<<8|u[i+2]<<16|u[i+3]<<24);
+    c=t[1792+(a&255)]^t[1536+((a>>>8)&255)]^t[1280+((a>>>16)&255)]^t[1024+(a>>>24)]^t[768+u[i+4]]^t[512+u[i+5]]^t[256+u[i+6]]^t[u[i+7]];
+  }
+  for(;i<n;i++)c=t[(c^u[i])&255]^(c>>>8);
+  return(~c)>>>0;
+}
 function sendTo(to,m){
   if(to===mySlot)return;
-  if(isHost){const c=conns[to];if(c&&c.open)try{c.send({k:'relay',from:mySlot,m})}catch(e){}}
-  else if(hostConn&&hostConn.open)try{hostConn.send({k:'relay',to,from:mySlot,m})}catch(e){}
+  if(isHost){const c=conns[to];if(c&&c.open)jsend(c,{k:'relay',from:mySlot,m})}
+  else if(hostConn&&hostConn.open)jsend(hostConn,{k:'relay',to,from:mySlot,m});
 }
 const broadcast=m=>{for(const k in roster)if(+k!==mySlot)sendTo(+k,m)};
 function refresh(){
@@ -222,12 +245,22 @@ function refresh(){
   if(isHost){$st('sst',connected?'متصل: '+n+' أجهزة ✓ (يمكن انضمام '+(MAXN-n)+' أخرى)':'بانتظار بقية الأجهزة…');$dot('sdot',connected?'ok':'wait')}
   hooks.roster(n);
 }
-function pushRoster(){for(const s in conns){const c=conns[s];if(c.open)try{c.send({k:'roster',roster})}catch(e){}}}
+function pushRoster(){for(const s in conns){const c=conns[s];if(c.open)jsend(c,{k:'roster',roster})}}
 let roomPass='',passFails=0,lockUntil=0;
 $('hpass').addEventListener('input',()=>{roomPass=$('hpass').value});
-const rejectConn=(c,k)=>{try{c.send({k})}catch(e){}setTimeout(()=>{try{c.close()}catch(e){}},400)};
+const rejectConn=(c,k)=>{jsend(c,{k});setTimeout(()=>{try{c.close()}catch(e){}},400)};
 function hostAccept(c){
-  c.on('data',d=>{
+  c.on('open',()=>fixChannel(c));if(c.open)fixChannel(c);
+  c.on('data',raw=>{
+    if(raw instanceof ArrayBuffer){   /* binary data frame from a member: stamp the sender, deliver or forward untouched */
+      if(!c._slot)return;const u=new Uint8Array(raw);if(u.length<=HDR||u[0]!==1)return;
+      const to=u[1];u[2]=c._slot;
+      if(to===mySlot)hooks.onFrame(c._slot,u);
+      else{const t=conns[to];if(t&&t.open)try{t.send(raw)}catch(e){}}
+      return;
+    }
+    if(typeof raw!=='string')return;
+    let d;try{d=JSON.parse(raw)}catch(e){return}
     if(d.k==='join'&&!c._slot){
       if(roomPass){
         if(Date.now()<lockUntil){rejectConn(c,'locked');return}
@@ -240,14 +273,14 @@ function hostAccept(c){
       }
       let s=+d.slot;if(!(s>=1&&s<=MAXN)||s===mySlot||conns[s])s=null;
       if(s===null)for(let i=1;i<=MAXN;i++)if(i!==mySlot&&!conns[i]){s=i;break}
-      if(s===null){try{c.send({k:'full'})}catch(e){}setTimeout(()=>c.close(),400);return}
+      if(s===null){jsend(c,{k:'full'});setTimeout(()=>c.close(),400);return}
       c._slot=s;conns[s]=c;roster[s]={w:d.w,h:d.h};
-      try{c.send({k:'welcome',slot:s,roster})}catch(e){}
+      jsend(c,{k:'welcome',slot:s,roster});
       pushRoster();refresh();hooks.note('📲 انضم جهاز جديد (الموضع '+s+')');
     }else if(d.k==='dim'&&c._slot){roster[c._slot]={w:d.w,h:d.h};pushRoster();refresh()}
     else if(d.k==='relay'&&c._slot){   /* only authenticated members may relay; sender slot is set by the host */
       if(d.to===mySlot)hooks.onMsg(c._slot,d.m);
-      else{const t=conns[d.to];if(t&&t.open)try{t.send({k:'relay',from:c._slot,m:d.m})}catch(e){}}
+      else{const t=conns[d.to];if(t&&t.open)jsend(t,{k:'relay',from:c._slot,m:d.m})}
     }
   });
   c.on('close',()=>{if(c._slot&&conns[c._slot]===c){delete conns[c._slot];delete roster[c._slot];pushRoster();refresh();hooks.note('غادر جهاز الغرفة')}});
@@ -270,9 +303,12 @@ function meshJoin(code){
   const tm=setTimeout(()=>{if(!connected)fail('تعذّر الاتصال. تحقق من الكود وجرّب مرة أخرى، وأوقف الـ VPN إن وُجد')},25000);
   peer=new Peer(undefined,PEER_OPTS());
   peer.on('open',()=>{
-    const c=hostConn=peer.connect(PREFIX+code,{reliable:true});watchIce(c,'rst');
-    c.on('open',()=>c.send({k:'join',slot:joinSlot,w:W,h:H,pw:$('rpass').value}));
-    c.on('data',d=>{
+    const c=hostConn=peer.connect(PREFIX+code,{reliable:true,serialization:'raw'});watchIce(c,'rst');
+    c.on('open',()=>{fixChannel(c);jsend(c,{k:'join',slot:joinSlot,w:W,h:H,pw:$('rpass').value})});
+    c.on('data',raw=>{
+      if(raw instanceof ArrayBuffer){const u=new Uint8Array(raw);if(u.length>HDR&&u[0]===1)hooks.onFrame(u[2],u);return}
+      if(typeof raw!=='string')return;
+      let d;try{d=JSON.parse(raw)}catch(e){return}
       if(d.k==='welcome'){clearTimeout(tm);mySlot=d.slot;roster=d.roster;connected=true;$dot('rdot','ok');
         if(d.slot!==joinSlot)hooks.note('تم وضع جهازك في الموضع '+d.slot);hooks.joined();refresh()}
       else if(d.k==='roster'){roster=d.roster;refresh()}
@@ -288,7 +324,7 @@ function meshJoin(code){
 }
 function setDims(){
   if(isHost){if(roster[mySlot]){roster[mySlot]={w:W,h:H};pushRoster();refresh()}}
-  else if(hostConn&&hostConn.open)try{hostConn.send({k:'dim',w:W,h:H})}catch(e){}
+  else if(hostConn&&hostConn.open)jsend(hostConn,{k:'dim',w:W,h:H})
 }
 (()=>{const s=document.createElement('style');s.textContent='.slotrow{display:flex;gap:6px;direction:ltr}.sl{flex:1;font:inherit;font-weight:700;font-size:18px;color:#8a94b8;background:rgba(14,16,40,.7);border:1.5px solid rgba(255,255,255,.15);border-radius:12px;padding:8px 0;cursor:pointer}.sl.on{color:#fff;border-color:#00f3ff;box-shadow:0 0 14px rgba(0,243,255,.5);background:rgba(0,243,255,.16)}.sl:disabled{opacity:.45;cursor:default}';document.head.append(s)})();
 function slotChips(before,label,def,cb){
@@ -412,23 +448,60 @@ async function keepAwake(on){
     else if(wl){const w=wl;wl=null;await w.release()}
   }catch(e){wl=null}
 }
-let xfer=null;   // current outgoing transfer: {to,acked,gotAck,abort}
+let xfer=null;   // current outgoing transfer: {to,acked,abort}
+/* wait until the data channel's send buffer drains below its low-water mark (event driven, 200 ms safety timeout) */
+const lowWait=dc=>new Promise(r=>{let t;const f=()=>{clearTimeout(t);dc.removeEventListener('bufferedamountlow',f);r()};dc.addEventListener('bufferedamountlow',f);t=setTimeout(f,200)});
+async function linkKind(c){   // 'direct' (peer-to-peer) or 'relay' (through a TURN server = slow)
+  try{
+    const st=await c.peerConnection.getStats();let pair=null;
+    st.forEach(r=>{if(r.type==='transport'&&r.selectedCandidatePairId)pair=st.get(r.selectedCandidatePairId)});
+    if(!pair)st.forEach(r=>{if(r.type==='candidate-pair'&&r.nominated&&r.state==='succeeded')pair=r});
+    if(!pair)return '';
+    const l=st.get(pair.localCandidateId),r=st.get(pair.remoteCandidateId);
+    return(l&&l.candidateType==='relay')||(r&&r.candidateType==='relay')?'relay':'direct';
+  }catch(e){return ''}
+}
+const mmss=t=>Math.floor(t/60)+':'+String(t%60).padStart(2,'0');
 async function sendFile(p,tg){
   sendTo(tg,{t:'payload',p:{kind:'file',name:p.name,mime:p.mime,size:p.size,chunked:true}});
-  const CH=131072,WIN=64*1048576;let off=0;
-  const x=xfer={to:tg,acked:0,gotAck:false,abort:false};keepAwake(true);
+  const READ=4*1048576,WIN=32*1048576,HIGH=4*1048576;   // read-ahead block / un-acked window / wire buffer
+  const x=xfer={to:tg,acked:0,abort:false};keepAwake(true);
   try{
-    while(off<p.size){
-      if(x.abort)throw 0;
-      const c=isHost?conns[tg]:hostConn;if(!c||!c.open)throw 0;
-      const dc=c.dataChannel||c._dc;
-      /* back-pressure: wire buffer + (once the receiver acks) a 64 MB window over what it has written to disk */
-      if((c.bufferSize||0)>120||(dc&&dc.bufferedAmount>4e6)||(x.gotAck&&off-x.acked>WIN)){await new Promise(r=>setTimeout(r,40));continue}
-      const ab=await p.file.slice(off,off+CH).arrayBuffer();
-      sendTo(tg,{t:'c',d:ab});off+=ab.byteLength;
-      hud('جارٍ إرسال الملف… '+Math.round(off/p.size*100)+'%  ('+fmt(off)+' / '+fmt(p.size)+') أبقِ هذه الصفحة مفتوحة',true,false);
+    const c0=isHost?conns[tg]:hostConn;if(!c0||!c0.open)throw 0;
+    let mm=65536;try{mm=c0.peerConnection.sctp.maxMessageSize||65536}catch(e){}
+    const CH=Math.max(16384,Math.min(131072,mm)-HDR);   // payload bytes per frame
+    const kind=await linkKind(c0);
+    const note=kind==='direct'?' \u00b7 اتصال مباشر':kind==='relay'?' \u00b7 عبر خادم وسيط (أبطأ)':'';
+    const t0=performance.now();let lastHud=0,off=0,base=0,crc=0;
+    let next=p.size?p.file.slice(0,READ).arrayBuffer():null;   // read the next block from disk while the current one is on the wire
+    while(base<p.size){
+      const blk=new Uint8Array(await next);
+      if(!blk.length)throw 0;
+      const nb=base+blk.length;
+      next=nb<p.size?p.file.slice(nb,nb+READ).arrayBuffer():null;
+      for(let i=0;i<blk.length;i+=CH){
+        const n=Math.min(CH,blk.length-i);
+        for(;;){   /* back-pressure: wire buffer + a 32 MB window over what the receiver has written to disk */
+          if(x.abort)throw 0;
+          const c=isHost?conns[tg]:hostConn;if(!c||!c.open)throw 0;
+          if(off-x.acked>WIN){await new Promise(r=>setTimeout(r,10));continue}
+          const dc=c.dataChannel||c._dc;
+          if(dc&&dc.bufferedAmount>HIGH){await lowWait(dc);continue}
+          break;
+        }
+        const part=blk.subarray(i,i+n),f=new Uint8Array(HDR+n);
+        f.set(part,HDR);crc=crc32(part,crc);
+        if(!sendFrame(tg,f))throw 0;
+        off+=n;
+        const now=performance.now();
+        if(now-lastHud>250){
+          lastHud=now;const sp=off/Math.max(.001,(now-t0)/1000);
+          hud('جارٍ إرسال الملف… '+Math.round(off/p.size*100)+'%  ('+fmt(off)+' / '+fmt(p.size)+') \u00b7 '+fmt(sp)+'/ث \u00b7 متبقي '+mmss(Math.ceil((p.size-off)/sp))+note+' \u00b7 أبقِ هذه الصفحة مفتوحة',true,false);
+        }
+      }
+      base=nb;
     }
-    sendTo(tg,{t:'done'});hud('اكتمل إرسال الملف ✓',true,false);
+    sendTo(tg,{t:'done',crc,size:p.size});hud('اكتمل إرسال الملف ✓',true,false);
   }catch(e){if(!x.abort)sendTo(tg,{t:'fail'});hud(x.abort?'أوقف الجهاز المستلم الاستلام':'انقطع إرسال الملف',false,false)}
   finally{if(xfer===x)xfer=null;keepAwake(false)}
 }
@@ -459,7 +532,7 @@ function abortSink(s,why){
 }
 function openSink(p,from){
   if(sink&&!sink.fin)killSink(sink);
-  const s=sink={from,size:p.size,got:0,ackd:0,w:null,fh:null,blob:null,name:null,fin:false,dead:false,q:Promise.resolve()};
+  const s=sink={from,size:p.size,got:0,ackd:0,crc:0,t:performance.now(),buf:[],bufN:0,w:null,fh:null,blob:null,name:null,fin:false,dead:false,q:Promise.resolve()};
   keepAwake(true);
   s.ready=(async()=>{
     if(OPFS_OK){
@@ -477,20 +550,31 @@ function openSink(p,from){
     s.blob=new Blob([],{type:p.mime});
   })().catch(e=>abortSink(s,e==='space'?'space':'err'));
 }
-function sinkWrite(ab,from){
-  const s=sink;if(!s||s.dead||s.from!==from)return;
-  const n=ab.byteLength||ab.length||0;recvBytes+=n;
+const FLUSH=1048576;   // batch incoming frames into ~1 MB writes (far fewer disk calls)
+function flushSink(s){
+  if(!s.bufN)return;
+  const parts=s.buf,n=s.bufN;s.buf=[];s.bufN=0;
   s.q=s.q.then(()=>s.ready).then(async()=>{
     if(s.dead)return;
-    if(s.w)await s.w.write(ab);else s.blob=new Blob([s.blob,ab]);
+    const b=new Blob(parts);
+    if(s.w)await s.w.write(b);else s.blob=new Blob([s.blob,b]);
     s.got+=n;
     if(s.got-s.ackd>=4194304){s.ackd=s.got;sendTo(s.from,{t:'ack',n:s.got})}
   }).catch(()=>abortSink(s,'err'));
 }
-function sinkFinish(from){
+function sinkWrite(u,from){
+  const s=sink;if(!s||s.dead||s.from!==from)return;
+  recvBytes+=u.length;s.crc=crc32(u,s.crc);s.t=performance.now();
+  s.buf.push(u);s.bufN+=u.length;
+  if(s.bufN>=FLUSH)flushSink(s);
+}
+function sinkFinish(from,d){
   const s=sink,p=payload;if(!s||s.dead||s.from!==from||!p)return;
+  const sane=!!d&&(d.crc>>>0)===(s.crc>>>0)&&d.size===p.size;   // every byte, in order, verified end to end
+  flushSink(s);
   s.q=s.q.then(()=>s.ready).then(async()=>{
     if(s.dead)return;
+    if(!sane||s.got!==p.size)throw 0;
     if(s.w){await s.w.close();s.w=null;p.blob=await s.fh.getFile()}else p.blob=s.blob;
     if(p.blob.size!==p.size)throw 0;
     s.fin=true;keepAwake(false);
@@ -508,12 +592,12 @@ function backToBuilder(){state='idle';orb.vis=false;trail=[];dragging=false;flyi
 const busyNow=()=>state==='gather'||state==='boom'||state==='card';
 const closeUI=()=>{if(document.querySelector('.screen.on'))show('')};
 const skip={};
+hooks.onFrame=(from,u)=>{if(skip[from])return;sinkWrite(u.subarray(HDR),from)};
 hooks.onMsg=(from,d)=>{
   if(d.t==='ack'){if(xfer&&xfer.to===from){xfer.acked=d.n;xfer.gotAck=true}return}
   if(d.t==='abort'){if(xfer&&xfer.to===from){xfer.abort=true;toast(d.why==='space'?'الجهاز '+from+' لا يملك مساحة كافية للملف':'تعذّر على الجهاز '+from+' حفظ الملف')}return}
   if(d.t==='payload'){if(busyNow()){skip[from]=1;return}skip[from]=0;payload=d.p;if(payload.chunked){payload.ready=false;recvBytes=0;openSink(payload,from)}return}
-  if(d.t==='c'){if(skip[from])return;sinkWrite(d.d,from);return}
-  if(d.t==='done'){if(skip[from])return;sinkFinish(from);return}
+    if(d.t==='done'){if(skip[from])return;sinkFinish(from,d);return}
   if(d.t==='reset'){if(state==='play')return;
     $('card').classList.remove('on');particles=[];rings=[];trail=[];gather=[];payload=null;meta=null;
     orb.vis=false;state='idle';hud(mySlot===d.origin?'✓ تم استلام الكبسولة':'تم الربط ✓ (الجهاز '+mySlot+') انتظر كبسولة أو اضغط 📤 للإرسال',true)
@@ -658,7 +742,12 @@ const bb=document.createElement('button');bb.className='btn v';bb.textContent='�
 
 /* ---------- main loop ---------- */
 const t0=performance.now();
+let lastFrame=0;
+/* while a big file is moving, draw at ~10 fps so the CPU goes to the transfer (receiving side: only if data arrived in the last 4 s) */
+const bulkBusy=now=>!!xfer||(!!sink&&!sink.fin&&!sink.dead&&now-sink.t<4000);
 function loop(now){
+  if(now-lastFrame<95&&bulkBusy(now)){raf=requestAnimationFrame(loop);return}
+  lastFrame=now;
   const t=(now-t0)/1000;ctx.clearRect(0,0,W,H);
   stepSender();stepReceiver(now);{const sf=connected&&state==='idle'&&!document.querySelector('.screen.on');if(sf!==fabOn){fabOn=sf;fab.style.display=sf?'block':'none'}}
   drawTrail();
