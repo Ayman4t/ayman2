@@ -214,9 +214,40 @@ const nb=d=>{let b=null;for(const k in roster){const s=+k;if(s===mySlot)continue
 /* ---------- fast wire format ----------
    control messages = JSON strings; file data = raw binary frames [1][to][from][0][payload...]
    (PeerJS 'raw' mode: no msgpack, no 16 KB re-chunking; the host re-addresses frames in place, no copy) */
-const HDR=4;
+const HDR=8;   // frame = [1][to][from][0] routing + [chunkIndex: Uint32 big-endian] + payload
 const jsend=(c,o)=>{try{c.send(JSON.stringify(o));return true}catch(e){return false}};
-function fixChannel(c){try{const dc=c.dataChannel||c._dc;if(dc){dc.binaryType='arraybuffer';dc.bufferedAmountLowThreshold=1048576}}catch(e){}}
+const BLT=262144;   // bufferedAmountLowThreshold = 256 KB on every channel
+function fixChannel(c){try{const dc=c.dataChannel||c._dc;if(dc){dc.binaryType='arraybuffer';dc.bufferedAmountLowThreshold=BLT}}catch(e){}}
+/* ---------- 4-channel Turbo engine ----------
+   ch0 = the PeerJS primary channel (label 'ch0'); ch1..ch3 = 3 extra *negotiated* channels on the same RTCPeerConnection
+   (negotiated => no ondatachannel event, so PeerJS' own handler is never confused). Handshake over ch0: {k:'turbo'} / {k:'turbo-ok'}. */
+const TB_IDS=[2,3,4];
+function turboOpen(c,onBin){
+  const pc=c.peerConnection;if(!pc||c._tb||typeof pc.createDataChannel!=='function')return false;
+  const t=c._tb={dcs:[],sendOk:false};
+  try{
+    TB_IDS.forEach((id,i)=>{
+      const d=pc.createDataChannel('ch'+(i+1),{negotiated:true,id,ordered:true});
+      d.binaryType='arraybuffer';d.bufferedAmountLowThreshold=BLT;
+      d.onmessage=e=>{if(e.data instanceof ArrayBuffer)onBin(e.data,i+1)};
+      t.dcs.push(d);
+    });
+    return true;
+  }catch(e){turboClose(c);return false}
+}
+function turboClose(c){const t=c&&c._tb;if(!t)return;c._tb=null;t.sendOk=false;t.dcs.forEach(d=>{try{d.onmessage=null;d.close()}catch(e){}})}
+function turboList(c){   // every open lane we may send on: [ch0, ch1, ch2, ch3] (or just [ch0] if the extras are not ready)
+  const l=[],p=c.dataChannel||c._dc;if(p&&p.readyState==='open')l.push(p);
+  const t=c._tb;if(t&&t.sendOk)for(const d of t.dcs)if(d.readyState==='open')l.push(d);
+  return l;
+}
+function hostBin(c,raw,ch){   /* binary frame from a member (any lane): stamp the sender, deliver or forward untouched on the same lane */
+  if(!c._slot)return;const u=new Uint8Array(raw);if(u.length<=HDR||u[0]!==1)return;
+  const to=u[1];u[2]=c._slot;
+  if(to===mySlot)hooks.onFrame(c._slot,u);
+  else{const t=conns[to];if(t&&t.open)try{const d=ch&&t._tb&&t._tb.sendOk&&t._tb.dcs[ch-1];if(d&&d.readyState==='open')d.send(raw);else t.send(raw)}catch(e){}}
+}
+function memberBin(raw){const u=new Uint8Array(raw);if(u.length>HDR&&u[0]===1)hooks.onFrame(u[2],u)}
 function sendFrame(to,f){
   const c=isHost?conns[to]:hostConn;if(!c||!c.open)return false;
   f[0]=1;f[1]=to;f[2]=mySlot;
@@ -252,13 +283,7 @@ const rejectConn=(c,k)=>{jsend(c,{k});setTimeout(()=>{try{c.close()}catch(e){}},
 function hostAccept(c){
   c.on('open',()=>fixChannel(c));if(c.open)fixChannel(c);
   c.on('data',raw=>{
-    if(raw instanceof ArrayBuffer){   /* binary data frame from a member: stamp the sender, deliver or forward untouched */
-      if(!c._slot)return;const u=new Uint8Array(raw);if(u.length<=HDR||u[0]!==1)return;
-      const to=u[1];u[2]=c._slot;
-      if(to===mySlot)hooks.onFrame(c._slot,u);
-      else{const t=conns[to];if(t&&t.open)try{t.send(raw)}catch(e){}}
-      return;
-    }
+    if(raw instanceof ArrayBuffer){hostBin(c,raw,0);return}
     if(typeof raw!=='string')return;
     let d;try{d=JSON.parse(raw)}catch(e){return}
     if(d.k==='join'&&!c._slot){
@@ -277,13 +302,15 @@ function hostAccept(c){
       c._slot=s;conns[s]=c;roster[s]={w:d.w,h:d.h};
       jsend(c,{k:'welcome',slot:s,roster});
       pushRoster();refresh();hooks.note('📲 انضم جهاز جديد (الموضع '+s+')');
+    }else if(d.k==='turbo'&&c._slot){
+      if(turboOpen(c,(b,i)=>hostBin(c,b,i))){c._tb.sendOk=true;jsend(c,{k:'turbo-ok'})}else jsend(c,{k:'turbo-no'});
     }else if(d.k==='dim'&&c._slot){roster[c._slot]={w:d.w,h:d.h};pushRoster();refresh()}
     else if(d.k==='relay'&&c._slot){   /* only authenticated members may relay; sender slot is set by the host */
       if(d.to===mySlot)hooks.onMsg(c._slot,d.m);
       else{const t=conns[d.to];if(t&&t.open)jsend(t,{k:'relay',from:c._slot,m:d.m})}
     }
   });
-  c.on('close',()=>{if(c._slot&&conns[c._slot]===c){delete conns[c._slot];delete roster[c._slot];pushRoster();refresh();hooks.note('غادر جهاز الغرفة')}});
+  c.on('close',()=>{turboClose(c);if(c._slot&&conns[c._slot]===c){delete conns[c._slot];delete roster[c._slot];pushRoster();refresh();hooks.note('غادر جهاز الغرفة')}});
 }
 function meshHost(attempt=0){
   if(!iceDone){setTimeout(()=>meshHost(attempt),300);return}
@@ -303,14 +330,16 @@ function meshJoin(code){
   const tm=setTimeout(()=>{if(!connected)fail('تعذّر الاتصال. تحقق من الكود وجرّب مرة أخرى، وأوقف الـ VPN إن وُجد')},25000);
   peer=new Peer(undefined,PEER_OPTS());
   peer.on('open',()=>{
-    const c=hostConn=peer.connect(PREFIX+code,{reliable:true,serialization:'raw'});watchIce(c,'rst');
+    const c=hostConn=peer.connect(PREFIX+code,{reliable:true,serialization:'raw',label:'ch0'});watchIce(c,'rst');
     c.on('open',()=>{fixChannel(c);jsend(c,{k:'join',slot:joinSlot,w:W,h:H,pw:$('rpass').value})});
     c.on('data',raw=>{
-      if(raw instanceof ArrayBuffer){const u=new Uint8Array(raw);if(u.length>HDR&&u[0]===1)hooks.onFrame(u[2],u);return}
+      if(raw instanceof ArrayBuffer){memberBin(raw);return}
       if(typeof raw!=='string')return;
       let d;try{d=JSON.parse(raw)}catch(e){return}
       if(d.k==='welcome'){clearTimeout(tm);mySlot=d.slot;roster=d.roster;connected=true;$dot('rdot','ok');
-        if(d.slot!==joinSlot)hooks.note('تم وضع جهازك في الموضع '+d.slot);hooks.joined();refresh()}
+        if(d.slot!==joinSlot)hooks.note('تم وضع جهازك في الموضع '+d.slot);hooks.joined();refresh();if(turboOpen(c,b=>memberBin(b)))jsend(c,{k:'turbo'})}
+      else if(d.k==='turbo-ok'){if(c._tb)c._tb.sendOk=true}
+      else if(d.k==='turbo-no'){turboClose(c)}
       else if(d.k==='roster'){roster=d.roster;refresh()}
       else if(d.k==='relay')hooks.onMsg(d.from,d.m);
       else if(d.k==='full'){clearTimeout(tm);fail('الغرفة ممتلئة (الحد الأقصى 5 أجهزة)')}
@@ -318,7 +347,7 @@ function meshJoin(code){
       else if(d.k==='badpass'){clearTimeout(tm);fail('❌ كلمة المرور غير صحيحة')}
       else if(d.k==='locked'){clearTimeout(tm);fail('محاولات خاطئة كثيرة: انتظر دقيقة ثم أعد المحاولة')}
     });
-    c.on('close',()=>{if(connected){connected=false;roster={};hooks.roster(0);hooks.note('انقطع الاتصال بالغرفة')}});
+    c.on('close',()=>{turboClose(c);if(connected){connected=false;roster={};hooks.roster(0);hooks.note('انقطع الاتصال بالغرفة')}});
   });
   peer.on('error',e=>{clearTimeout(tm);fail(e.type==='peer-unavailable'?'الكود غير صحيح أو الغرفة غير موجودة':'خطأ في الاتصال: '+e.type)});
 }
@@ -450,7 +479,8 @@ async function keepAwake(on){
 }
 let xfer=null;   // current outgoing transfer: {to,acked,abort}
 /* wait until the data channel's send buffer drains below its low-water mark (event driven, 200 ms safety timeout) */
-const lowWait=dc=>new Promise(r=>{let t;const f=()=>{clearTimeout(t);dc.removeEventListener('bufferedamountlow',f);r()};dc.addEventListener('bufferedamountlow',f);t=setTimeout(f,200)});
+/* wait until ANY lane drains below its low-water mark (event driven, 200 ms safety timeout) */
+const lowAny=dcs=>new Promise(r=>{let t;const f=()=>{clearTimeout(t);dcs.forEach(d=>d.removeEventListener('bufferedamountlow',f));r()};dcs.forEach(d=>d.addEventListener('bufferedamountlow',f));t=setTimeout(f,200)});
 async function linkKind(c){   // 'direct' (peer-to-peer) or 'relay' (through a TURN server = slow)
   try{
     const st=await c.peerConnection.getStats();let pair=null;
@@ -463,16 +493,20 @@ async function linkKind(c){   // 'direct' (peer-to-peer) or 'relay' (through a T
 }
 const mmss=t=>Math.floor(t/60)+':'+String(t%60).padStart(2,'0');
 async function sendFile(p,tg){
-  sendTo(tg,{t:'payload',p:{kind:'file',name:p.name,mime:p.mime,size:p.size,chunked:true}});
-  const READ=4*1048576,WIN=32*1048576,HIGH=4*1048576;   // read-ahead block / un-acked window / wire buffer
+  /* 4-lane striping: 64 KB chunks, each prefixed with a 4-byte big-endian chunkIndex; the receiver re-orders by index */
+  const WIN=32*1048576,LANE_HIGH=1048576,CS=65536;   // un-acked window / per-lane wire buffer / chunk size
   const x=xfer={to:tg,acked:0,abort:false};keepAwake(true);
   try{
     const c0=isHost?conns[tg]:hostConn;if(!c0||!c0.open)throw 0;
     let mm=65536;try{mm=c0.peerConnection.sctp.maxMessageSize||65536}catch(e){}
-    const CH=Math.max(16384,Math.min(131072,mm)-HDR);   // payload bytes per frame
+    const CH=Math.max(16384,Math.min(CS,mm-HDR));          // payload bytes per chunk (65536 normally)
+    const READ=Math.floor(4*1048576/CH)*CH;                // disk read-ahead block, a whole number of chunks
+    const total=Math.ceil(p.size/CH);
+    const lanes=x.lanes=turboList(c0);if(!lanes.length)throw 0;
+    sendTo(tg,{t:'payload',p:{kind:'file',name:p.name,mime:p.mime,size:p.size,chunked:true,cs:CH,n:total}});
     const kind=await linkKind(c0);
-    const note=kind==='direct'?' \u00b7 اتصال مباشر':kind==='relay'?' \u00b7 عبر خادم وسيط (أبطأ)':'';
-    const t0=performance.now();let lastHud=0,off=0,base=0,crc=0;
+    const note=(kind==='direct'?' \u00b7 اتصال مباشر':kind==='relay'?' \u00b7 عبر خادم وسيط (أبطأ)':'')+' \u00b7 \u26a1 '+lanes.length+' قنوات';
+    const t0=performance.now();let lastHud=0,off=0,base=0,crc=0,idx=0,rr=0;
     let next=p.size?p.file.slice(0,READ).arrayBuffer():null;   // read the next block from disk while the current one is on the wire
     while(base<p.size){
       const blk=new Uint8Array(await next);
@@ -481,18 +515,23 @@ async function sendFile(p,tg){
       next=nb<p.size?p.file.slice(nb,nb+READ).arrayBuffer():null;
       for(let i=0;i<blk.length;i+=CH){
         const n=Math.min(CH,blk.length-i);
-        for(;;){   /* back-pressure: wire buffer + a 32 MB window over what the receiver has written to disk */
+        let dc=null;
+        for(;;){   /* back-pressure: pick the emptiest lane; wait if all are full; 32 MB window over what the receiver has written */
           if(x.abort)throw 0;
           const c=isHost?conns[tg]:hostConn;if(!c||!c.open)throw 0;
+          for(const d of lanes)if(d.readyState!=='open')throw 0;   // a lane that dies may take chunks with it: fail loudly, never corrupt
           if(off-x.acked>WIN){await new Promise(r=>setTimeout(r,10));continue}
-          const dc=c.dataChannel||c._dc;
-          if(dc&&dc.bufferedAmount>HIGH){await lowWait(dc);continue}
+          let m=Infinity;const L=lanes.length;
+          for(let k=0;k<L;k++){const d=lanes[(rr+k)%L];if(d.bufferedAmount<m){m=d.bufferedAmount;dc=d}}
+          rr++;
+          if(m>LANE_HIGH){await lowAny(lanes);continue}
           break;
         }
         const part=blk.subarray(i,i+n),f=new Uint8Array(HDR+n);
         f.set(part,HDR);crc=crc32(part,crc);
-        if(!sendFrame(tg,f))throw 0;
-        off+=n;
+        f[0]=1;f[1]=tg;f[2]=mySlot;new DataView(f.buffer).setUint32(4,idx,false);   // big-endian chunkIndex
+        dc.send(f.buffer);
+        idx++;off+=n;
         const now=performance.now();
         if(now-lastHud>250){
           lastHud=now;const sp=off/Math.max(.001,(now-t0)/1000);
@@ -518,7 +557,7 @@ async function cleanTmp(keep){   // delete temp files from earlier transfers (ol
 }
 cleanTmp();
 function killSink(s){
-  if(s.dead&&!s.name)return;s.dead=true;
+  if(s.dead&&!s.name)return;s.dead=true;clearTimeout(s.wd);if(s.pend)s.pend.clear();
   Promise.resolve().then(()=>s.w&&s.w.abort()).catch(()=>{}).then(()=>{if(!s.fin)removeTmp(s.name)});
 }
 function abortSink(s,why){
@@ -532,7 +571,7 @@ function abortSink(s,why){
 }
 function openSink(p,from){
   if(sink&&!sink.fin)killSink(sink);
-  const s=sink={from,size:p.size,got:0,ackd:0,crc:0,t:performance.now(),buf:[],bufN:0,w:null,fh:null,blob:null,name:null,fin:false,dead:false,q:Promise.resolve()};
+  const s=sink={from,size:p.size,got:0,ackd:0,crc:0,t:performance.now(),buf:[],bufN:0,w:null,fh:null,blob:null,name:null,fin:false,dead:false,q:Promise.resolve(),n:p.n,cs:p.cs,next:0,pend:new Map(),doneD:null,finishing:false,wd:0};
   keepAwake(true);
   s.ready=(async()=>{
     if(OPFS_OK){
@@ -568,8 +607,28 @@ function sinkWrite(u,from){
   s.buf.push(u);s.bufN+=u.length;
   if(s.bufN>=FLUSH)flushSink(s);
 }
-function sinkFinish(from,d){
+const PEND_MAX=1536;   // safety cap on out-of-order chunks held in RAM (the sender's 32 MB window keeps it far below this)
+function sinkChunk(from,idx,u){   /* chunks arrive out of order over 4 lanes: write them strictly in order, park early ones */
+  const s=sink;if(!s||s.dead||s.from!==from||s.finishing)return;
+  if(idx>=s.n)return;                                   // outside the file: ignore
+  if(idx<s.next||s.pend.has(idx))return;                // duplicate: ignore
+  if(u.length!==(idx===s.n-1?s.size-(s.n-1)*s.cs:s.cs)){abortSink(s,'err');return}   // wrong size = corruption: refuse
+  if(idx!==s.next){if(s.pend.size>=PEND_MAX){abortSink(s,'err');return}s.pend.set(idx,u);return}
+  sinkWrite(u,from);s.next++;
+  let q;while((q=s.pend.get(s.next))){s.pend.delete(s.next);sinkWrite(q,from);s.next++}
+  if(s.doneD&&s.next>=s.n&&payload)finishSink(s,payload);
+}
+function sinkFinish(from,d){   /* 'done' travels on ch0 and can overtake chunks still in flight on ch1..ch3: wait for every chunk */
   const s=sink,p=payload;if(!s||s.dead||s.from!==from||!p)return;
+  s.doneD=d||{};
+  if(s.next>=s.n){finishSink(s,p);return}
+  let mark=s.next;
+  const chk=()=>{if(s.dead||s.fin||s.finishing)return;if(s.next>=s.n)return;if(s.next===mark)abortSink(s,'err');else{mark=s.next;s.wd=setTimeout(chk,20000)}};
+  clearTimeout(s.wd);s.wd=setTimeout(chk,20000);
+}
+function finishSink(s,p){
+  if(s.finishing||s.dead)return;s.finishing=true;clearTimeout(s.wd);
+  const d=s.doneD;
   const sane=!!d&&(d.crc>>>0)===(s.crc>>>0)&&d.size===p.size;   // every byte, in order, verified end to end
   flushSink(s);
   s.q=s.q.then(()=>s.ready).then(async()=>{
@@ -592,7 +651,7 @@ function backToBuilder(){state='idle';orb.vis=false;trail=[];dragging=false;flyi
 const busyNow=()=>state==='gather'||state==='boom'||state==='card';
 const closeUI=()=>{if(document.querySelector('.screen.on'))show('')};
 const skip={};
-hooks.onFrame=(from,u)=>{if(skip[from])return;sinkWrite(u.subarray(HDR),from)};
+hooks.onFrame=(from,u)=>{if(skip[from])return;sinkChunk(from,new DataView(u.buffer,u.byteOffset,u.byteLength).getUint32(4,false),u.subarray(HDR))};
 hooks.onMsg=(from,d)=>{
   if(d.t==='ack'){if(xfer&&xfer.to===from){xfer.acked=d.n;xfer.gotAck=true}return}
   if(d.t==='abort'){if(xfer&&xfer.to===from){xfer.abort=true;toast(d.why==='space'?'الجهاز '+from+' لا يملك مساحة كافية للملف':'تعذّر على الجهاز '+from+' حفظ الملف')}return}
