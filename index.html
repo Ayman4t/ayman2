@@ -58,6 +58,7 @@ input.num{font-size:34px;letter-spacing:12px;font-weight:700;direction:ltr;text-
 #card .btn{padding:12px;font-size:15px;margin-top:10px}
 #toast{position:fixed;bottom:max(24px,env(safe-area-inset-bottom));left:50%;transform:translateX(-50%) translateY(30px);opacity:0;z-index:50;background:rgba(16,185,129,.9);color:#fff;padding:10px 20px;border-radius:999px;transition:.3s;pointer-events:none;font-weight:600}
 #toast.on{opacity:1;transform:translateX(-50%)}
+.chk{display:flex;gap:10px;align-items:center;margin-top:14px;color:var(--muted);font-size:14px;line-height:1.6;text-align:start;cursor:pointer}.chk input{width:22px;height:22px;flex:none;margin:0;padding:0}#clipBtn.ping{animation:pulse 1s infinite;border-color:#10b981!important}
 </style>
 </head>
 <body>
@@ -97,7 +98,7 @@ input.num{font-size:34px;letter-spacing:12px;font-weight:700;direction:ltr;text-
       <button class="tab" data-p="pCard">كارت شخصي</button>
     </div>
     <div class="pane on" id="pFile">
-      <label class="pick" for="fin"><b>اختر صورة أو ملفاً</b>الصور تُضغط تلقائياً لنقل أسرع، والحد الأقصى للملفات 10 غيغابايت</label>
+      <label class="pick" for="fin"><b>اختر صورة أو ملفاً</b>الصور تُضغط تلقائياً لنقل أسرع، والملفات بلا حد للحجم</label>
       <input type="file" id="fin" style="display:none">
       <img id="pv" alt="">
       <div class="label" id="finfo" style="margin-top:8px;text-align:center"></div>
@@ -123,6 +124,39 @@ input.num{font-size:34px;letter-spacing:12px;font-weight:700;direction:ltr;text-
   </div>
 </section>
 
+<section class="screen" id="sClip">
+  <div class="box">
+    <h1 style="font-size:28px">📋 الحافظة المشتركة</h1>
+    <p class="sub" style="margin:8px 0 0">اكتب أو الصق هنا، والنص يظهر فوراً على كل الأجهزة المتصلة</p>
+    <textarea id="clipTxt" placeholder="النص المشترك…"></textarea>
+    <div class="status"><i class="dot ok"></i><span id="clipSt">متزامن مع كل الأجهزة</span></div>
+    <button class="btn g" id="clipPaste">📥 الصق من حافظة الجهاز وأرسل</button>
+    <button class="btn" id="clipCopy">📋 انسخ لحافظة الجهاز</button>
+    <label class="chk"><input type="checkbox" id="clipRecvAuto"> انسخ تلقائياً لحافظة جهازي عند وصول نص</label>
+    <label class="chk"><input type="checkbox" id="clipPullOn"> أرسل حافظتي تلقائياً لما أرجع للتطبيق</label>
+    <button class="btn v" id="clipClose">إغلاق</button>
+  </div>
+</section>
+
+<section class="screen" id="sTurn">
+  <div class="box" style="text-align:start">
+    <h1 style="font-size:28px;text-align:center">إعداد الاتصال (TURN)</h1>
+    <p class="sub" style="text-align:center">TURN ضروري لما الأجهزة على شبكات مختلفة (بيانات الجوال ↔ واي فاي اللابتوب). اختر واحداً:</p>
+    <div class="label">① Cloudflare — مجاني (1000 جيجا/شهر): رابط الـ Worker</div>
+    <input id="tEp" placeholder="https://turn-creds.xxx.workers.dev" style="direction:ltr" autocomplete="off">
+    <div class="label" style="margin-top:16px">② Metered Open Relay: اسم التطبيق + API Key</div>
+    <input id="tApp" placeholder="APPNAME" style="direction:ltr" autocomplete="off">
+    <input id="tKey" placeholder="API Key" style="direction:ltr" autocomplete="off">
+    <div class="label" style="margin-top:16px">③ خادم خاص (coturn): العناوين مفصولة بفاصلة</div>
+    <input id="tUrl" placeholder="turn:host:3478, turns:host:5349" style="direction:ltr" autocomplete="off">
+    <input id="tUser" placeholder="username" style="direction:ltr" autocomplete="off">
+    <input id="tPass" placeholder="password" type="password" style="direction:ltr" autocomplete="off">
+    <button class="btn g" id="tSave">حفظ وإعادة التحميل</button>
+    <button class="btn v" id="tClear">مسح الإعدادات</button>
+    <button class="btn" id="tClose">رجوع</button>
+  </div>
+</section>
+
 <div id="card"></div>
 
 <script src="https://cdnjs.cloudflare.com/ajax/libs/peerjs/1.5.4/peerjs.min.js"></script>
@@ -131,25 +165,27 @@ input.num{font-size:34px;letter-spacing:12px;font-weight:700;direction:ltr;text-
 const $=id=>document.getElementById(id);
 const cv=$('cv'),ctx=cv.getContext('2d');
 const COLORS=['#00f3ff','#7c3aed','#10b981'];
-const PREFIX='slingdrop-ayman2-',MAX=6*1024*1024,MAXF=10*1024*1024*1024;   // 10 GB per file
+const PREFIX='slingdrop-ayman2-',MAX=6*1024*1024;   // used for image compression only: files have NO size cap
 /* ---- Internet-wide connectivity (STUN + TURN relay) ---- */
-let METERED_APP='',METERED_KEY='';   // or open the site as  ?turn=APPNAME:APIKEY  (saved on that phone)
-try{const q=new URLSearchParams(location.search).get('turn');if(q)localStorage.setItem('qturn',q);const v=(q||localStorage.getItem('qturn')||'').split(':');METERED_APP=v[0]||METERED_APP;METERED_KEY=v[1]||METERED_KEY}catch(e){}
-let ICE=[
- {urls:'stun:stun.l.google.com:19302'},{urls:'stun:stun.cloudflare.com:3478'},
- {urls:'turn:openrelay.metered.ca:80',username:'openrelayproject',credential:'openrelayproject'},
- {urls:'turn:openrelay.metered.ca:443',username:'openrelayproject',credential:'openrelayproject'},
- {urls:'turn:openrelay.metered.ca:443?transport=tcp',username:'openrelayproject',credential:'openrelayproject'},
- {urls:'turns:openrelay.metered.ca:443?transport=tcp',username:'openrelayproject',credential:'openrelayproject'},
+let CFG={};try{CFG=JSON.parse(localStorage.getItem('turncfg')||'{}')||{}}catch(e){}
+try{const q=new URLSearchParams(location.search).get('turn');if(q){const v=q.split(':');if(v[0]&&v[1]){CFG.app=v[0];CFG.key=v[1];localStorage.setItem('turncfg',JSON.stringify(CFG))}}}catch(e){}
+const STUN=[{urls:'stun:stun.l.google.com:19302'},{urls:'stun:stun.cloudflare.com:3478'}];
+let ICE=STUN.concat([   // last-resort public relays (unreliable): configure your own TURN from the settings button
  {urls:'turn:freestun.net:3478',username:'free',credential:'free'},
  {urls:'turns:freestun.net:5349',username:'free',credential:'free'},
  {urls:'turn:turn.anyfirewall.com:443?transport=tcp',username:'webrtc',credential:'webrtc'}
-];
-let iceDone=!(METERED_APP&&METERED_KEY);
+]);
+const asList=j=>Array.isArray(j)?j:(j&&j.iceServers?[].concat(j.iceServers):[]);
+const hasCfg=!!(CFG.ep||(CFG.app&&CFG.key)||CFG.url);
+let iceDone=!hasCfg;
 const PEER_OPTS=()=>({debug:0,config:{iceServers:ICE,iceCandidatePoolSize:4}});
-if(!iceDone){
-  fetch('https://'+METERED_APP+'.metered.live/api/v1/turn/credentials?apiKey='+METERED_KEY).then(r=>r.json()).then(j=>{if(Array.isArray(j)&&j.length)ICE=j.concat(ICE.slice(0,2))}).catch(()=>{}).finally(()=>{iceDone=true});
-  setTimeout(()=>{iceDone=true},4000);
+if(hasCfg){
+  const jobs=[];
+  if(CFG.ep)jobs.push(fetch(CFG.ep,{cache:'no-store'}).then(r=>r.json()).then(asList));   // Cloudflare Worker -> short-lived credentials
+  if(CFG.app&&CFG.key)jobs.push(fetch('https://'+CFG.app+'.metered.live/api/v1/turn/credentials?apiKey='+encodeURIComponent(CFG.key)).then(r=>r.json()).then(asList));
+  if(CFG.url){const u=CFG.url.split(/[\s,]+/).filter(Boolean);if(u.length)jobs.push(Promise.resolve([{urls:u,username:CFG.user||'',credential:CFG.pass||''}]))}
+  Promise.all(jobs.map(p=>p.catch(()=>[]))).then(a=>{const l=[].concat(...a);if(l.length)ICE=STUN.concat(l)}).finally(()=>{iceDone=true});
+  setTimeout(()=>{iceDone=true},5000);
 }
 function watchIce(c,id){
   const t=setInterval(()=>{
@@ -175,11 +211,12 @@ async function testRelay(){
   const b=document.querySelector('#sRole .box');if(!b)return;
   const n=document.createElement('div');n.style.cssText='margin-top:18px;font-size:13px;color:#8a94b8;line-height:1.8';
   n.textContent='🌐 جارٍ فحص الاتصال عبر الإنترنت…';b.append(n);
+  const g=document.createElement('button');g.className='btn';g.style.cssText='font-size:14px;padding:10px';g.textContent='⚙️ إعداد الاتصال (TURN مجاني)';g.onclick=()=>show('sTurn');b.append(g);
   (async()=>{
     while(!iceDone)await new Promise(r=>setTimeout(r,200));
     const ok=await testRelay();
     n.style.color=ok?'#10b981':'#fbbf24';
-    n.innerHTML=ok?'🌐 الاتصال عبر بيانات الجوال متاح ✓':'⚠️ خادم الترحيل غير متاح: سيعمل الربط على نفس الـ Wi-Fi فقط.<br>افتح الموقع بالشكل <span dir="ltr">?turn=APPNAME:APIKEY</span>';
+    n.innerHTML=ok?'🌐 الاتصال عبر بيانات الجوال متاح ✓':'⚠️ خادم الترحيل غير متاح: سيعمل الربط على نفس الـ Wi-Fi فقط.<br>اضغط ⚙️ تحت وظبّط TURN مجاني';
   })();
 })();
 
@@ -197,7 +234,7 @@ let trail=[],particles=[],rings=[],gather=[],raf=0;
 const show=id=>document.querySelectorAll('.screen').forEach(s=>s.classList.toggle('on',s.id===id));
 function hud(txt,ok,back){$('hud').style.display='flex';$('htxt').textContent=txt;$('hdot').className='dot '+(ok?'ok':'wait');$('bBack').style.display=back?'inline-flex':'none'}
 const send=o=>{if(conn&&conn.open)try{conn.send(o)}catch(e){}};
-const fmt=b=>b<1024?b+' بايت':b<1048576?(b/1024).toFixed(1)+' ك.ب':b<1073741824?(b/1048576).toFixed(2)+' م.ب':(b/1073741824).toFixed(2)+' غ.ب';
+const fmt=b=>b<1024?b+' بايت':b<1048576?(b/1024).toFixed(1)+' ك.ب':b<1073741824?(b/1048576).toFixed(2)+' م.ب':b<1099511627776?(b/1073741824).toFixed(2)+' غ.ب':(b/1099511627776).toFixed(2)+' ت.ب';
 let tt;function toast(s){const t=$('toast');t.textContent=s;t.classList.add('on');clearTimeout(tt);tt=setTimeout(()=>t.classList.remove('on'),2000)}
 function el(tag,cls,txt){const e=document.createElement(tag);if(cls)e.className=cls;if(txt!=null)e.textContent=txt;return e}
 function normUrl(s){s=(s||'').trim();if(/\s/.test(s)||!s)return null;if(/^https?:\/\//i.test(s))return s;if(/^[\w-]+(\.[\w-]+)+(\/\S*)?$/.test(s))return 'https://'+s;return null}
@@ -384,12 +421,71 @@ function renderTargets(){
   if(target==null||!roster[target]||target===mySlot){const f=slots.find(s=>s!==mySlot);if(f!=null&&f!==target){target=f;renderTargets()}}
 }
 
+/* ---------- Shared clipboard ---------- */
+const clipTxt=$('clipTxt');let clipLast='',clipPending=null,clipT=0;
+const lsGet=(k,d)=>{try{const v=localStorage.getItem(k);return v==null?d:v==='1'}catch(e){return d}};
+const lsSet=(k,v)=>{try{localStorage.setItem(k,v?'1':'0')}catch(e){}};
+let clipRecvAuto=lsGet('sdclipr',true),clipPullOn=lsGet('sdclipp',false);
+$('clipRecvAuto').checked=clipRecvAuto;$('clipPullOn').checked=clipPullOn;
+$('clipRecvAuto').onchange=e=>{clipRecvAuto=e.target.checked;lsSet('sdclipr',clipRecvAuto)};
+$('clipPullOn').onchange=e=>{clipPullOn=e.target.checked;lsSet('sdclipp',clipPullOn);if(clipPullOn)clipPull()};
+const clipBtn=el('button',null,'📋');clipBtn.id='clipBtn';
+clipBtn.style.cssText="position:fixed;z-index:12;right:12px;bottom:max(22px,env(safe-area-inset-bottom));width:44px;height:44px;border-radius:50%;font-size:20px;color:#fff;border:1.5px solid rgba(16,185,129,.6);background:rgba(14,16,40,.78);cursor:pointer;display:none";
+document.body.append(clipBtn);
+clipBtn.onclick=()=>{clipBtn.classList.remove('ping');show('sClip')};
+$('clipClose').onclick=()=>show('');
+const clipSt=t=>{$('clipSt').textContent=t};
+function clipSend(txt){
+  if(!connected)return;
+  if(txt.length>100000){txt=txt.slice(0,100000);toast('اتقصّ النص (الحد 100 ألف حرف)')}
+  clipLast=txt;broadcast({t:'clip',text:txt});clipSt('اتبعت لكل الأجهزة ✓');
+}
+clipTxt.addEventListener('input',()=>{clearTimeout(clipT);clipT=setTimeout(()=>clipSend(clipTxt.value),150)});
+async function clipWrite(txt,from){
+  try{await navigator.clipboard.writeText(txt);clipPending=null;toast('📋 اتنسخ لحافظتك (من الجهاز '+from+')');return true}
+  catch(e){clipPending=txt;clipBtn.classList.add('ping');toast('📋 وصل نص من الجهاز '+from+' — المس الشاشة لنسخه');return false}
+}
+function onClip(from,d){
+  if(typeof d.text!=='string')return;
+  clipLast=d.text;clipTxt.value=d.text;clipSt('وصل نص من الجهاز '+from+' ✓');
+  if(clipRecvAuto)clipWrite(d.text,from);else{clipBtn.classList.add('ping');toast('📋 وصل نص من الجهاز '+from)}
+}
+/* browsers only allow writing to the clipboard right after a touch/click: a pending text is copied on the very next one */
+['pointerup','touchend','click','keydown'].forEach(ev=>addEventListener(ev,()=>{
+  if(clipPending==null)return;const t=clipPending;clipPending=null;
+  navigator.clipboard.writeText(t).then(()=>{clipBtn.classList.remove('ping');toast('📋 اتنسخ لحافظتك ✓')},()=>{clipPending=t});
+},true));
+async function clipPull(manual){
+  if(!connected||!navigator.clipboard||!navigator.clipboard.readText){if(manual)toast('المتصفح لا يسمح بقراءة الحافظة، الصق يدوياً في المربع');return}
+  try{const t=await navigator.clipboard.readText();
+    if(t&&t!==clipLast){clipTxt.value=t;clipSend(t);if(!manual)toast('📋 اتبعت حافظتك للأجهزة الأخرى')}
+    else if(manual)toast(t?'نفس النص المرسل':'الحافظة فاضية')}
+  catch(e){if(manual)toast('اسمح بالوصول للحافظة أو الصق يدوياً في المربع')}
+}
+$('clipPaste').onclick=()=>clipPull(true);
+$('clipCopy').onclick=()=>copy(clipTxt.value);
+addEventListener('focus',()=>{if(clipPullOn)clipPull()});
+document.addEventListener('visibilitychange',()=>{if(document.visibilityState==='visible'&&clipPullOn)clipPull()});
+
+/* ---------- TURN settings screen ---------- */
+{const F={tEp:'ep',tApp:'app',tKey:'key',tUrl:'url',tUser:'user',tPass:'pass'};
+ for(const id in F)$(id).value=CFG[F[id]]||'';
+ $('tSave').onclick=()=>{
+   const c={};for(const id in F)c[F[id]]=$(id).value.trim();
+   if(c.ep&&!/^https:\/\//i.test(c.ep)){toast('رابط الـ Worker لازم يبدأ بـ https://');return}
+   try{localStorage.setItem('turncfg',JSON.stringify(c))}catch(e){}
+   location.href=location.pathname;
+ };
+ $('tClear').onclick=()=>{try{localStorage.removeItem('turncfg')}catch(e){}location.href=location.pathname};
+ $('tClose').onclick=()=>show('sRole');
+}
+
 /* ---------- roles & pairing ---------- */
 $('bSend').onclick=()=>{role='send';show('sSend');meshHost();startLoop()};
 $('bRecv').onclick=()=>{role='recv';show('sRecv');$('room').focus()};
 hooks.roster=n=>{
   {
-    $('bNext').disabled=!connected;$('bdot').className='dot '+(connected?'ok':'wait');
+    clipBtn.style.display=connected?'block':'none';$('bNext').disabled=!connected;$('bdot').className='dot '+(connected?'ok':'wait');
     $('bst').textContent=connected?'متصل: '+n+' أجهزة':'لا توجد أجهزة متصلة';
     renderTargets();if(!connected&&state==='play')hud('انقطع الاتصال',false,true);
   }
@@ -421,7 +517,6 @@ $('fin').onchange=async e=>{
       filePay={kind:'image',name:f.name.replace(/\.\w+$/,'')+'.jpg',mime:'image/jpeg',data:d,size:Math.round(d.length*.75)};
       $('pv').src=d;$('pv').style.display='block';
     }else{
-      if(f.size>MAXF){$('finfo').textContent='الملف كبير جداً (الحد 10 غيغابايت)';return}
       filePay={kind:'file',name:f.name,mime:f.type||'application/octet-stream',file:f,size:f.size};
     }
     $('finfo').textContent=filePay.name+' — '+fmt(filePay.size);
@@ -470,13 +565,16 @@ $('bGo').onclick=()=>{
 };
 $('bBack').onclick=()=>{if(orb.sentTo!=null)sendTo(orb.sentTo,{t:'hide'});backToBuilder()};
 /* keep the screen on during long transfers (a sleeping phone kills the connection) */
-let wl=null;
-async function keepAwake(on){
+let wl=null,wlq=Promise.resolve();const awakeFor=new Set();
+async function wlSync(){
   try{
-    if(on){if(!wl&&navigator.wakeLock){wl=await navigator.wakeLock.request('screen');wl.addEventListener('release',()=>{wl=null})}}
+    if(awakeFor.size){if(!wl&&navigator.wakeLock&&document.visibilityState==='visible'){const l=await navigator.wakeLock.request('screen');wl=l;l.addEventListener('release',()=>{if(wl===l)wl=null})}}
     else if(wl){const w=wl;wl=null;await w.release()}
   }catch(e){wl=null}
 }
+function keepAwake(on,key){key=key||'x';on?awakeFor.add(key):awakeFor.delete(key);return wlq=wlq.then(wlSync)}
+/* the browser drops the lock whenever the page is hidden: take it again as soon as the page is visible */
+document.addEventListener('visibilitychange',()=>{if(document.visibilityState==='visible'&&awakeFor.size)keepAwake(true,[...awakeFor][0])});
 let xfer=null;   // current outgoing transfer: {to,acked,abort}
 /* wait until the data channel's send buffer drains below its low-water mark (event driven, 200 ms safety timeout) */
 /* wait until ANY lane drains below its low-water mark (event driven, 200 ms safety timeout) */
@@ -495,7 +593,7 @@ const mmss=t=>Math.floor(t/60)+':'+String(t%60).padStart(2,'0');
 async function sendFile(p,tg){
   /* 4-lane striping: 64 KB chunks, each prefixed with a 4-byte big-endian chunkIndex; the receiver re-orders by index */
   const WIN=32*1048576,LANE_HIGH=1048576,CS=65536;   // un-acked window / per-lane wire buffer / chunk size
-  const x=xfer={to:tg,acked:0,abort:false};keepAwake(true);
+  const x=xfer={to:tg,acked:0,abort:false};keepAwake(true,'send');
   try{
     const c0=isHost?conns[tg]:hostConn;if(!c0||!c0.open)throw 0;
     let mm=65536;try{mm=c0.peerConnection.sctp.maxMessageSize||65536}catch(e){}
@@ -542,7 +640,7 @@ async function sendFile(p,tg){
     }
     sendTo(tg,{t:'done',crc,size:p.size});hud('اكتمل إرسال الملف ✓',true,false);
   }catch(e){if(!x.abort)sendTo(tg,{t:'fail'});hud(x.abort?'أوقف الجهاز المستلم الاستلام':'انقطع إرسال الملف',false,false)}
-  finally{if(xfer===x)xfer=null;keepAwake(false)}
+  finally{if(xfer===x)xfer=null;keepAwake(false,'send')}
 }
 
 /* ---------- receiving big files: stream to disk (OPFS) instead of RAM ---------- */
@@ -562,7 +660,7 @@ function killSink(s){
 }
 function abortSink(s,why){
   if(s.dead)return;
-  killSink(s);keepAwake(false);sendTo(s.from,{t:'abort',why});
+  killSink(s);keepAwake(false,'recv');sendTo(s.from,{t:'abort',why});
   if(sink===s){
     payload=null;if(state==='gather'||state==='glide'||state==='incoming'){state='idle';orb.vis=false;gather=[]}
     toast(why==='space'?'لا توجد مساحة كافية على هذا الجهاز لاستلام الملف':'تعذّر حفظ الملف على هذا الجهاز');
@@ -572,7 +670,7 @@ function abortSink(s,why){
 function openSink(p,from){
   if(sink&&!sink.fin)killSink(sink);
   const s=sink={from,size:p.size,got:0,ackd:0,crc:0,t:performance.now(),buf:[],bufN:0,w:null,fh:null,blob:null,name:null,fin:false,dead:false,q:Promise.resolve(),n:p.n,cs:p.cs,next:0,pend:new Map(),doneD:null,finishing:false,wd:0};
-  keepAwake(true);
+  keepAwake(true,'recv');
   s.ready=(async()=>{
     if(OPFS_OK){
       try{
@@ -636,7 +734,7 @@ function finishSink(s,p){
     if(!sane||s.got!==p.size)throw 0;
     if(s.w){await s.w.close();s.w=null;p.blob=await s.fh.getFile()}else p.blob=s.blob;
     if(p.blob.size!==p.size)throw 0;
-    s.fin=true;keepAwake(false);
+    s.fin=true;keepAwake(false,'recv');
     if(payload===p)p.ready=true;
   }).catch(()=>abortSink(s,'err'));
 }
@@ -649,10 +747,11 @@ function backToBuilder(){state='idle';orb.vis=false;trail=[];dragging=false;flyi
 
 /* ---------- receiving (every device can receive) ---------- */
 const busyNow=()=>state==='gather'||state==='boom'||state==='card';
-const closeUI=()=>{if(document.querySelector('.screen.on'))show('')};
+const closeUI=()=>{const o=document.querySelector('.screen.on');if(o&&o.id!=='sClip')show('')};
 const skip={};
 hooks.onFrame=(from,u)=>{if(skip[from])return;sinkChunk(from,new DataView(u.buffer,u.byteOffset,u.byteLength).getUint32(4,false),u.subarray(HDR))};
 hooks.onMsg=(from,d)=>{
+  if(d.t==='clip'){onClip(from,d);return}
   if(d.t==='ack'){if(xfer&&xfer.to===from){xfer.acked=d.n;xfer.gotAck=true}return}
   if(d.t==='abort'){if(xfer&&xfer.to===from){xfer.abort=true;toast(d.why==='space'?'الجهاز '+from+' لا يملك مساحة كافية للملف':'تعذّر على الجهاز '+from+' حفظ الملف')}return}
   if(d.t==='payload'){if(busyNow()){skip[from]=1;return}skip[from]=0;payload=d.p;if(payload.chunked){payload.ready=false;recvBytes=0;openSink(payload,from)}return}
@@ -662,7 +761,7 @@ hooks.onMsg=(from,d)=>{
     orb.vis=false;state='idle';hud(mySlot===d.origin?'✓ تم استلام الكبسولة':'تم الربط ✓ (الجهاز '+mySlot+') انتظر كبسولة أو اضغط 📤 للإرسال',true)
     return;
   }
-  if(d.t==='fail'){if(sink&&!sink.fin)killSink(sink);keepAwake(false);payload=null;if(state==='gather'||state==='glide'){state='idle';orb.vis=false;gather=[]}toast('فشل استلام الملف من الجهاز '+from);hud('تم الربط ✓ (الجهاز '+mySlot+')',true);return}
+  if(d.t==='fail'){if(sink&&!sink.fin)killSink(sink);keepAwake(false,'recv');payload=null;if(state==='gather'||state==='glide'){state='idle';orb.vis=false;gather=[]}toast('فشل استلام الملف من الجهاز '+from);hud('تم الربط ✓ (الجهاز '+mySlot+')',true);return}
   if(d.t==='hide'){if(state==='incoming'){orb.vis=false;state='idle'}return}
   if(d.t==='busy'){toast('الجهاز '+from+' مشغول بكبسولة أخرى');if(state==='gone'){state='idle';hud('تم الربط ✓ (الجهاز '+mySlot+')',true)}return}
   if(busyNow()){if(d.t==='own')sendTo(d.origin,{t:'busy'});return}
