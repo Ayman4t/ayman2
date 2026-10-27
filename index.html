@@ -216,7 +216,7 @@ async function testRelay(){
   const n=document.createElement('div');n.style.cssText='margin-top:18px;font-size:13px;color:#8a94b8;line-height:1.8';
   n.textContent='🌐 جارٍ فحص الاتصال عبر الإنترنت…';b.append(n);
   const g=document.createElement('button');g.className='btn';g.style.cssText='font-size:14px;padding:10px';g.textContent='⚙️ إعداد الاتصال (TURN مجاني)';g.onclick=()=>show('sTurn');b.append(g);
-  const vt=document.createElement('div');vt.style.cssText='margin-top:10px;font-size:11px;color:#556';vt.textContent='الإصدار 4';b.append(vt);
+  const vt=document.createElement('div');vt.style.cssText='margin-top:10px;font-size:11px;color:#556';vt.textContent='الإصدار 5';b.append(vt);
   (async()=>{
     while(!iceDone)await new Promise(r=>setTimeout(r,200));
     const ok=await testRelay();
@@ -1079,15 +1079,20 @@ function drawFX(){
   }
   particles=particles.filter(p=>p.life>0);ctx.restore();
 }
-/* ---------- auto-resume the room after a reload / the page being killed ---------- */
+/* ---------- after a reload the site starts normally; a button offers to go back to the last room ---------- */
 (()=>{
   const o=sessLoad();if(!o||!o.code)return;
-  if(o.role==='host'){
-    role='send';hostSlot=+o.slot||1;roomPass=o.pw||'';$('hpass').value=roomPass;show('sSend');meshHost(0,o.code);startLoop();toast('🔄 بنرجّع الغرفة '+o.code+'…');
-  }else if(o.role==='member'){
-    role='recv';joinSlot=lastSlot=+o.slot||2;roomCode=o.code;$('room').value=o.code;$('rpass').value=o.pw||'';
-    show('sRecv');startLoop();$('bConn').disabled=true;meshJoin(o.code);hooks.left('host');toast('🔄 بنرجع للغرفة '+o.code+'…');
-  }
+  const b=el('button','btn g','↩️ العودة للغرفة '+o.code);
+  b.append(el('small',null,o.role==='host'?'كنت مضيف الغرفة':'كنت منضماً إليها'));
+  b.onclick=()=>{
+    if(o.role==='host'){
+      role='send';hostSlot=+o.slot||1;roomPass=o.pw||'';$('hpass').value=roomPass;show('sSend');meshHost(0,o.code);startLoop();
+    }else{
+      role='recv';joinSlot=lastSlot=+o.slot||2;roomCode=o.code;$('room').value=o.code;$('rpass').value=o.pw||'';
+      show('sRecv');startLoop();$('bConn').disabled=true;meshJoin(o.code);hooks.left('host');
+    }
+  };
+  $('bRecv').after(b);
 })();
 })();
 </script>
