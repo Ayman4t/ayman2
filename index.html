@@ -170,7 +170,11 @@ const PREFIX='slingdrop-ayman2-',MAX=6*1024*1024;   // used for image compressio
 let CFG={};try{CFG=JSON.parse(localStorage.getItem('turncfg')||'{}')||{}}catch(e){}
 try{const q=new URLSearchParams(location.search).get('turn');if(q){const v=q.split(':');if(v[0]&&v[1]){CFG.app=v[0];CFG.key=v[1];localStorage.setItem('turncfg',JSON.stringify(CFG))}}}catch(e){}
 const STUN=[{urls:'stun:stun.l.google.com:19302'},{urls:'stun:stun.cloudflare.com:3478'}];
-let ICE=STUN.concat([   // last-resort public relays (unreliable): configure your own TURN from the settings button
+let ICE=STUN.concat([   // public relays = fallback only (unreliable): configure your own TURN from the settings button
+ {urls:'turn:openrelay.metered.ca:80',username:'openrelayproject',credential:'openrelayproject'},
+ {urls:'turn:openrelay.metered.ca:443',username:'openrelayproject',credential:'openrelayproject'},
+ {urls:'turn:openrelay.metered.ca:443?transport=tcp',username:'openrelayproject',credential:'openrelayproject'},
+ {urls:'turns:openrelay.metered.ca:443?transport=tcp',username:'openrelayproject',credential:'openrelayproject'},
  {urls:'turn:freestun.net:3478',username:'free',credential:'free'},
  {urls:'turns:freestun.net:5349',username:'free',credential:'free'},
  {urls:'turn:turn.anyfirewall.com:443?transport=tcp',username:'webrtc',credential:'webrtc'}
@@ -244,7 +248,7 @@ const isUrl=s=>!!normUrl(s);
 const MAXN=5;
 let isHost=false,roomCode='';
 let mySlot=1,hostSlot=1,joinSlot=2,roster={},conns={},hostConn=null;
-const hooks={onMsg(){},onFrame(){},roster(){},joined(){},joinFail(){},note(){}};
+const hooks={left(){},onMsg(){},onFrame(){},roster(){},joined(){},joinFail(){},note(){}};
 const $st=(id,t)=>{const e=document.getElementById(id);if(e)e.textContent=t};
 const $dot=(id,c)=>{const e=document.getElementById(id);if(e)e.className='dot '+c};
 const nb=d=>{let b=null;for(const k in roster){const s=+k;if(s===mySlot)continue;if(d>0?s>mySlot:s<mySlot){if(b===null||(d>0?s<b:s>b))b=s}}return b===null?null:{slot:b,w:roster[b].w,h:roster[b].h}};
@@ -278,13 +282,14 @@ function turboList(c){   // every open lane we may send on: [ch0, ch1, ch2, ch3]
   const t=c._tb;if(t&&t.sendOk)for(const d of t.dcs)if(d.readyState==='open')l.push(d);
   return l;
 }
+let hbRx=0;
 function hostBin(c,raw,ch){   /* binary frame from a member (any lane): stamp the sender, deliver or forward untouched on the same lane */
-  if(!c._slot)return;const u=new Uint8Array(raw);if(u.length<=HDR||u[0]!==1)return;
+  c._rx=Date.now();if(!c._slot)return;const u=new Uint8Array(raw);if(u.length<=HDR||u[0]!==1)return;
   const to=u[1];u[2]=c._slot;
   if(to===mySlot)hooks.onFrame(c._slot,u);
   else{const t=conns[to];if(t&&t.open)try{const d=ch&&t._tb&&t._tb.sendOk&&t._tb.dcs[ch-1];if(d&&d.readyState==='open')d.send(raw);else t.send(raw)}catch(e){}}
 }
-function memberBin(raw){const u=new Uint8Array(raw);if(u.length>HDR&&u[0]===1)hooks.onFrame(u[2],u)}
+function memberBin(raw){hbRx=Date.now();const u=new Uint8Array(raw);if(u.length>HDR&&u[0]===1)hooks.onFrame(u[2],u)}
 function sendFrame(to,f){
   const c=isHost?conns[to]:hostConn;if(!c||!c.open)return false;
   f[0]=1;f[1]=to;f[2]=mySlot;
@@ -311,7 +316,7 @@ const broadcast=m=>{for(const k in roster)if(+k!==mySlot)sendTo(+k,m)};
 function refresh(){
   const n=Object.keys(roster).length;connected=n>1;
   if(isHost){$st('sst',connected?'متصل: '+n+' أجهزة ✓ (يمكن انضمام '+(MAXN-n)+' أخرى)':'بانتظار بقية الأجهزة…');$dot('sdot',connected?'ok':'wait')}
-  hooks.roster(n);
+  lostCheck(n);hooks.roster(n);
 }
 function pushRoster(){for(const s in conns){const c=conns[s];if(c.open)jsend(c,{k:'roster',roster})}}
 let roomPass='',passFails=0,lockUntil=0;
@@ -322,7 +327,9 @@ function hostAccept(c){
   c.on('data',raw=>{
     if(raw instanceof ArrayBuffer){hostBin(c,raw,0);return}
     if(typeof raw!=='string')return;
+    c._rx=Date.now();
     let d;try{d=JSON.parse(raw)}catch(e){return}
+    if(d.k==='ping'){jsend(c,{k:'pong'});return}
     if(d.k==='join'&&!c._slot){
       if(roomPass){
         if(Date.now()<lockUntil){rejectConn(c,'locked');return}
@@ -347,7 +354,7 @@ function hostAccept(c){
       else{const t=conns[d.to];if(t&&t.open)jsend(t,{k:'relay',from:c._slot,m:d.m})}
     }
   });
-  c.on('close',()=>{turboClose(c);if(c._slot&&conns[c._slot]===c){delete conns[c._slot];delete roster[c._slot];pushRoster();refresh();hooks.note('غادر جهاز الغرفة')}});
+  c.on('close',()=>{turboClose(c);if(c._slot&&conns[c._slot]===c){const sl=c._slot;delete conns[sl];delete roster[sl];pushRoster();refresh();hooks.note('غادر الجهاز '+sl+' الغرفة');hooks.left(sl)}});
 }
 function meshHost(attempt=0){
   if(!iceDone){setTimeout(()=>meshHost(attempt),300);return}
@@ -356,6 +363,7 @@ function meshHost(attempt=0){
   if(typeof Peer==='undefined'){$st('sst','تعذّر تحميل PeerJS، تحقق من الإنترنت');return}
   peer=new Peer(PREFIX+roomCode,PEER_OPTS());
   peer.on('open',()=>{$st('sst','بانتظار بقية الأجهزة…');refresh()});
+  peer.on('disconnected',()=>{try{peer.reconnect()}catch(e){}});
   peer.on('error',e=>{if(e.type==='unavailable-id'&&attempt<6){peer.destroy();meshHost(attempt+1)}else $st('sst','خطأ في الاتصال: '+e.type)});
   peer.on('connection',c=>{watchIce(c,'sst');hostAccept(c)});
 }
@@ -366,15 +374,17 @@ function meshJoin(code){
   const fail=t=>{$st('rst',t);$dot('rdot','');hooks.joinFail()};
   const tm=setTimeout(()=>{if(!connected)fail('تعذّر الاتصال. تحقق من الكود وجرّب مرة أخرى، وأوقف الـ VPN إن وُجد')},25000);
   peer=new Peer(undefined,PEER_OPTS());
+  peer.on('disconnected',()=>{try{peer.reconnect()}catch(e){}});
   peer.on('open',()=>{
     const c=hostConn=peer.connect(PREFIX+code,{reliable:true,serialization:'raw',label:'ch0'});watchIce(c,'rst');
     c.on('open',()=>{fixChannel(c);jsend(c,{k:'join',slot:joinSlot,w:W,h:H,pw:$('rpass').value})});
     c.on('data',raw=>{
+      hbRx=Date.now();
       if(raw instanceof ArrayBuffer){memberBin(raw);return}
       if(typeof raw!=='string')return;
       let d;try{d=JSON.parse(raw)}catch(e){return}
       if(d.k==='welcome'){clearTimeout(tm);mySlot=d.slot;roster=d.roster;connected=true;$dot('rdot','ok');
-        if(d.slot!==joinSlot)hooks.note('تم وضع جهازك في الموضع '+d.slot);hooks.joined();refresh();if(turboOpen(c,b=>memberBin(b)))jsend(c,{k:'turbo'})}
+        if(d.slot!==joinSlot)hooks.note('تم وضع جهازك في الموضع '+d.slot);hbRx=Date.now();hooks.joined();refresh();if(turboOpen(c,b=>memberBin(b)))jsend(c,{k:'turbo'})}
       else if(d.k==='turbo-ok'){if(c._tb)c._tb.sendOk=true}
       else if(d.k==='turbo-no'){turboClose(c)}
       else if(d.k==='roster'){roster=d.roster;refresh()}
@@ -384,7 +394,7 @@ function meshJoin(code){
       else if(d.k==='badpass'){clearTimeout(tm);fail('❌ كلمة المرور غير صحيحة')}
       else if(d.k==='locked'){clearTimeout(tm);fail('محاولات خاطئة كثيرة: انتظر دقيقة ثم أعد المحاولة')}
     });
-    c.on('close',()=>{turboClose(c);if(connected){connected=false;roster={};hooks.roster(0);hooks.note('انقطع الاتصال بالغرفة')}});
+    c.on('close',()=>{turboClose(c);if(hostConn===c&&connected){connected=false;roster={};hooks.roster(0);hooks.note('انقطع الاتصال بالمضيف');hooks.left('host')}});
   });
   peer.on('error',e=>{clearTimeout(tm);fail(e.type==='peer-unavailable'?'الكود غير صحيح أو الغرفة غير موجودة':'خطأ في الاتصال: '+e.type)});
 }
@@ -437,7 +447,7 @@ $('clipClose').onclick=()=>show('');
 const clipSt=t=>{$('clipSt').textContent=t};
 function clipSend(txt){
   if(!connected)return;
-  if(txt.length>100000){txt=txt.slice(0,100000);toast('اتقصّ النص (الحد 100 ألف حرف)')}
+  if(txt.length>40000){txt=txt.slice(0,40000);toast('اتقصّ النص (الحد 40 ألف حرف)')}
   clipLast=txt;broadcast({t:'clip',text:txt});clipSt('اتبعت لكل الأجهزة ✓');
 }
 clipTxt.addEventListener('input',()=>{clearTimeout(clipT);clipT=setTimeout(()=>clipSend(clipTxt.value),150)});
@@ -480,6 +490,46 @@ document.addEventListener('visibilitychange',()=>{if(document.visibilityState===
  $('tClose').onclick=()=>show('sRole');
 }
 
+/* ---------- someone left: notify, count down while waiting for them, then leave ---------- */
+const LOST_SEC=60;let lostT=0,lostRetry=0,lostLeft=0,lostWho=null,lostN=0;
+const lostBar=document.createElement('div');
+lostBar.style.cssText='position:fixed;z-index:45;left:50%;top:max(58px,calc(env(safe-area-inset-top) + 46px));transform:translateX(-50%);display:none;align-items:center;gap:10px;max-width:92vw;background:rgba(40,22,6,.94);border:1px solid #fbbf24;color:#fde68a;border-radius:16px;padding:9px 14px;font-size:14px;box-shadow:0 0 18px rgba(251,191,36,.35)';
+const lostTxt=el('span'),lostBtn=el('button',null,'خروج الآن');
+lostBtn.style.cssText='font:inherit;color:#fff;background:rgba(124,58,237,.75);border:0;border-radius:10px;padding:5px 12px;cursor:pointer;flex:none';
+lostBar.append(lostTxt,lostBtn);document.body.append(lostBar);
+lostBtn.onclick=()=>exitRoom('تم الخروج من الغرفة');
+const paintLost=()=>{lostTxt.textContent='⏳ '+(lostWho==='host'?'انقطع الاتصال بالمضيف':'الجهاز '+lostWho+' خرج')+' — بنستنى رجوعه ('+lostLeft+' ث)';lostBar.style.display='flex'};
+function lostStop(){clearInterval(lostT);clearInterval(lostRetry);lostT=lostRetry=0;lostWho=null;lostBar.style.display='none'}
+function lostCheck(n){if(lostWho!=null&&(lostWho==='host'?connected:n>lostN)){lostStop();toast('✓ رجع الاتصال')}}
+function exitRoom(msg){
+  lostStop();
+  try{if(peer)peer.destroy()}catch(e){}
+  peer=null;conns={};hostConn=null;roster={};connected=false;isHost=false;
+  if(sink&&!sink.fin)killSink(sink);keepAwake(false,'recv');keepAwake(false,'send');
+  payload=null;meta=null;state='idle';orb.vis=false;trail=[];particles=[];rings=[];gather=[];dragging=false;flying=false;
+  $('card').classList.remove('on');$('hud').style.display='none';clipBtn.style.display='none';
+  $('bConn').disabled=false;$('code').textContent='····';$st('sst','جارٍ إنشاء الغرفة…');$dot('sdot','wait');$st('rst','أدخل الكود المكوّن من 4 أرقام');$dot('rdot','');
+  show('sRole');if(msg)toast(msg);
+}
+hooks.left=who=>{
+  if(sink&&!sink.fin){killSink(sink);payload=null}
+  keepAwake(false,'recv');
+  if(state==='gather'||state==='glide'||state==='incoming'||state==='pass'){state='idle';orb.vis=false;gather=[]}
+  lostStop();lostWho=who;lostLeft=LOST_SEC;lostN=Object.keys(roster).length;paintLost();
+  lostT=setInterval(()=>{
+    if(--lostLeft>0){paintLost();return}
+    lostStop();
+    if(isHost&&Object.keys(conns).length)toast('الجهاز لم يعد');else exitRoom('انتهى وقت الانتظار، تم الخروج من الغرفة');
+  },1000);
+  if(who==='host')lostRetry=setInterval(()=>{if(!connected&&roomCode)meshJoin(roomCode)},6000);   // keep trying to get back in
+};
+/* heartbeat: notice a dead link within ~25-40 s instead of waiting for the browser to give up */
+setInterval(()=>{
+  const now=Date.now();
+  if(isHost){for(const k in conns){const c=conns[k];if(c.open&&now-(c._rx||now)>40000)try{c.close()}catch(e){}}}
+  else if(hostConn&&hostConn.open&&connected){jsend(hostConn,{k:'ping'});if(hbRx&&now-hbRx>25000)try{hostConn.close()}catch(e){}}
+},4000);
+
 /* ---------- roles & pairing ---------- */
 $('bSend').onclick=()=>{role='send';show('sSend');meshHost();startLoop()};
 $('bRecv').onclick=()=>{role='recv';show('sRecv');$('room').focus()};
@@ -500,7 +550,7 @@ function joinNow(){
   const code=$('room').value.trim();
   if(!/^\d{4}$/.test(code)){$('rst').textContent='الكود يجب أن يكون 4 أرقام';return}
   if(typeof Peer==='undefined'){$('rst').textContent='تعذّر تحميل PeerJS، تحقق من الإنترنت';return}
-  $('bConn').disabled=true;meshJoin(code);
+  $('bConn').disabled=true;roomCode=code;meshJoin(code);
 }
 
 /* ---------- payload builder ---------- */
@@ -513,8 +563,8 @@ $('fin').onchange=async e=>{
   $('finfo').textContent='جارٍ التجهيز…';filePay=null;$('pv').style.display='none';
   try{
     if(f.type.startsWith('image/')){
-      const d=await compress(f);
-      filePay={kind:'image',name:f.name.replace(/\.\w+$/,'')+'.jpg',mime:'image/jpeg',data:d,size:Math.round(d.length*.75)};
+      const d=await compress(f),bl=await (await fetch(d)).blob();
+      filePay={kind:'image',name:f.name.replace(/\.\w+$/,'')+'.jpg',mime:'image/jpeg',data:d,file:bl,size:bl.size};
       $('pv').src=d;$('pv').style.display='block';
     }else{
       filePay={kind:'file',name:f.name,mime:f.type||'application/octet-stream',file:f,size:f.size};
@@ -545,6 +595,7 @@ function buildPayload(){
     meta={icon:filePay.kind==='image'?'🖼️':'📄',label:filePay.kind==='image'?'صورة':filePay.name,sub:fmt(filePay.size)};
   }else if(tab==='pLink'){
     const t=$('ltxt').value.trim();if(!t){toast('اكتب رابطاً أو نصاً أولاً');return false}
+    if(new Blob([t]).size>200000){toast('النص كبير (الحد 200 ك.ب)، أرسله كملف');return false}
     outPay={kind:'link',text:t,size:new Blob([t]).size};
     meta={icon:isUrl(t)?'🔗':'📝',label:isUrl(t)?'رابط':'نص',sub:fmt(outPay.size)};
   }else{
@@ -601,7 +652,7 @@ async function sendFile(p,tg){
     const READ=Math.floor(4*1048576/CH)*CH;                // disk read-ahead block, a whole number of chunks
     const total=Math.ceil(p.size/CH);
     const lanes=x.lanes=turboList(c0);if(!lanes.length)throw 0;
-    sendTo(tg,{t:'payload',p:{kind:'file',name:p.name,mime:p.mime,size:p.size,chunked:true,cs:CH,n:total}});
+    sendTo(tg,{t:'payload',p:{kind:p.kind==='image'?'image':'file',name:p.name,mime:p.mime,size:p.size,chunked:true,cs:CH,n:total}});
     const kind=await linkKind(c0);
     const note=(kind==='direct'?' \u00b7 اتصال مباشر':kind==='relay'?' \u00b7 عبر خادم وسيط (أبطأ)':'')+' \u00b7 \u26a1 '+lanes.length+' قنوات';
     const t0=performance.now();let lastHud=0,off=0,base=0,crc=0,idx=0,rr=0;
@@ -846,6 +897,7 @@ function link(txt,cls,href){const a=el('a','btn '+cls,txt);a.href=href;a.target=
 function renderCard(p){
   const c=$('card');c.replaceChildren(el('div','t','✦ وصلت الكبسولة من الجهاز '+orb.origin+' ✦'));
   if(p.kind==='image'){
+    if(!p.data&&p.blob)p.data=URL.createObjectURL(p.blob);
     const im=el('img');im.src=p.data;c.append(im,el('div','meta',p.name+' — '+fmt(p.size)),btn('تحميل الصورة بأعلى جودة','g',()=>download(p.name,p.data)));
   }else if(p.kind==='file'){
     c.append(el('div','ico','📄'),el('div','big',p.name),el('div','meta',fmt(p.size)),btn('تنزيل الملف فوراً','g',()=>download(p.name,p.data,null,p.blob)));
@@ -972,9 +1024,17 @@ function stepReceiver(now){
   if(state==='gather'){
     for(let i=0;i<3;i++)gather.push({a:Math.random()*6.283,d:orb.hw*(1.2+Math.random()*1.4),c:COLORS[(Math.random()*3)|0]});
     if(now-gatherT>650){
-      if(payload&&payload.ready!==false){gather=[];explode()}else hud('جارٍ استلام الملف… '+(payload&&payload.size?Math.min(99,Math.round(recvBytes/payload.size*100))+'%':''),false);
+      if(payload&&payload.ready!==false){gather=[];explode()}
+      else if(!payload?now-gatherT>20000:(!sink||sink.dead||(!sink.fin&&performance.now()-sink.t>25000))){giveUpGather()}
+      else hud('جارٍ استلام الملف… '+(payload&&payload.size?Math.min(99,Math.round(recvBytes/payload.size*100))+'%':''),false);
     }
   }
+}
+function giveUpGather(){
+  if(sink&&!sink.fin)killSink(sink);keepAwake(false,'recv');
+  if(orb.origin!=null&&orb.origin!==mySlot)sendTo(orb.origin,{t:'abort',why:'err'});
+  payload=null;state='idle';orb.vis=false;gather=[];
+  toast('الحمولة لم تصل، جرّب الإرسال مرة أخرى');hud('تم الربط ✓ (الجهاز '+mySlot+')',true);
 }
 const gatherScale=()=>{const p=Math.min(1,(performance.now()-gatherT)/650);return 1-.25*p+Math.sin(p*40)*.03};
 function drawFX(){
