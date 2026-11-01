@@ -23,14 +23,16 @@ button{font:inherit;font-weight:700;color:#fff;border:0;border-radius:16px;paddi
 <label for="m">رسالتك · Message</label><textarea id="m" name="message" rows="6" required maxlength="3000"></textarea>
 <input type="text" name="_honey" style="display:none" tabindex="-1" autocomplete="off">
 <button type="submit">إرسال · Send</button><div id="st" role="status"></div></form>
-<p style="margin-top:20px">أو راسلنا مباشرة · Or email us: <a href="mailto:salemaymen814@gmail.com">salemaymen814@gmail.com</a></p>
+<p style="margin-top:20px">أو راسلنا مباشرة · Or email us: <a href="#" id="em">اضغط هنا للمراسلة · Click to email</a></p>
 <script>
+const A=atob('c2FsZW1heW1lbjgxNEBnbWFpbC5jb20='),mail=()=>{location.href='mailto:'+A};
 const f=document.getElementById('cf'),st=document.getElementById('st');
+document.getElementById('em').onclick=e=>{e.preventDefault();mail()};
 f.addEventListener('submit',async e=>{e.preventDefault();const b=f.querySelector('button');const d=Object.fromEntries(new FormData(f));if(d._honey)return;
 b.disabled=true;st.textContent='جارٍ الإرسال… Sending…';
-try{const r=await fetch('https://formsubmit.co/ajax/salemaymen814@gmail.com',{method:'POST',headers:{'Content-Type':'application/json',Accept:'application/json'},body:JSON.stringify({name:d.name,email:d.email,message:d.message,_subject:'HopDrop contact: '+d.name,_replyto:d.email,_template:'table'})});
+try{const r=await fetch('https://formsubmit.co/ajax/'+A,{method:'POST',headers:{'Content-Type':'application/json',Accept:'application/json'},body:JSON.stringify({name:d.name,email:d.email,message:d.message,_subject:'HopDrop contact: '+d.name,_replyto:d.email,_template:'table'})});
 const j=await r.json();if(r.ok&&(j.success===true||j.success==='true')){f.reset();st.textContent='✓ تم الإرسال، شكراً لك! Message sent, thank you!'}else throw 0}
-catch(_){st.innerHTML='تعذّر الإرسال الآن. راسلنا مباشرة · Could not send. Email us: <a href="mailto:salemaymen814@gmail.com">salemaymen814@gmail.com</a>'}
+catch(_){st.innerHTML='تعذّر الإرسال الآن · Could not send. <a href="#" id="em2">راسلنا بالبريد · Email us</a>';document.getElementById('em2').onclick=e=>{e.preventDefault();mail()}}
 b.disabled=false});
 </script>
 <footer><a href="/">الرئيسية · Home</a><a href="about.html">من نحن · About</a><a href="contact.html">تواصل معنا · Contact</a><span>© AymanStack</span></footer></div></body></html>
