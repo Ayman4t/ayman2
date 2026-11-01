@@ -121,6 +121,7 @@ input.num{font-size:34px;letter-spacing:12px;font-weight:700;direction:ltr;text-
 #sRole .steps div{font-size:12.5px;padding:11px}
 #sRole .trust{font-size:12.5px}
 @media(min-width:700px){#sRole .box{max-width:500px;padding:36px 36px 30px}}
+.xit{margin-top:10px;border-color:rgba(244,114,182,.55);color:#fbcfe8}
 </style>
 </head>
 <body>
@@ -157,6 +158,7 @@ input.num{font-size:34px;letter-spacing:12px;font-weight:700;direction:ltr;text-
     <input id="hpass" type="password" placeholder="🔒 كلمة مرور للغرفة (اختياري)" maxlength="64" autocomplete="off" style="direction:ltr;text-align:center">
     <div class="status"><i class="dot wait" id="sdot"></i><span id="sst">جارٍ إنشاء الغرفة…</span></div>
     <button class="btn g" id="bNext" disabled>متابعة وتجهيز الحمولة</button>
+    <button class="btn v xit" id="bExit1">🚪 خروج من الغرفة</button>
   </div>
 </section>
 
@@ -182,6 +184,7 @@ input.num{font-size:34px;letter-spacing:12px;font-weight:700;direction:ltr;text-
       <input id="vl" placeholder="رابط يوتيوب / سوشيال ميديا" maxlength="200" style="direction:ltr">
     </div>
     <button class="btn g" id="bGo">أطلق الكبسولة</button>
+    <button class="btn v xit" id="bExit2">🚪 خروج من الغرفة</button>
   </div>
 </section>
 
@@ -193,6 +196,7 @@ input.num{font-size:34px;letter-spacing:12px;font-weight:700;direction:ltr;text-
     <input id="rpass" type="password" placeholder="🔒 كلمة المرور (إن كانت الغرفة محمية)" maxlength="64" autocomplete="off" style="direction:ltr;text-align:center">
     <div class="status"><i class="dot" id="rdot"></i><span id="rst">أدخل الكود المكوّن من 4 أرقام</span></div>
     <button class="btn" id="bConn">اتصال</button>
+    <button class="btn v xit" id="bExit3">↩ رجوع</button>
   </div>
 </section>
 
@@ -524,6 +528,7 @@ lostBtn.onclick=()=>exitRoom('تم الخروج من الغرفة');
 const exitBtn=el('button',null,'🚪 خروج');exitBtn.id='bExit';exitBtn.style.borderColor='rgba(244,114,182,.65)';
 exitBtn.onclick=()=>{if(confirm('هل تريد الخروج من الغرفة؟'))exitRoom('تم الخروج من الغرفة')};
 $('hud').append(exitBtn);
+['bExit1','bExit2','bExit3'].forEach(i=>{const b=$(i);if(b)b.onclick=()=>exitRoom(i==='bExit3'?'':'تم الخروج من الغرفة')});
 const paintLost=()=>{lostTxt.textContent='⏳ '+(lostWho==='host'?'انقطع الاتصال، بنحاول نرجع':'الجهاز '+lostWho+' خرج')+' — بنستنى رجوعه ('+lostLeft+' ث)'+(lostWho==='host'&&window.__ice?' · '+window.__ice:'');lostBar.style.display='flex'};
 function lostStop(){clearInterval(lostT);clearInterval(lostRetry);lostT=lostRetry=0;lostWho=null;lostBar.style.display='none'}
 function lostCheck(n){if(lostWho!=null&&(lostWho==='host'?connected:n>lostN)){lostStop();toast('✓ رجع الاتصال')}}
