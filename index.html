@@ -521,6 +521,9 @@ const lostTxt=el('span'),lostBtn=el('button',null,'خروج الآن');
 lostBtn.style.cssText='font:inherit;color:#fff;background:rgba(139,92,246,.75);border:0;border-radius:10px;padding:5px 12px;cursor:pointer;flex:none';
 lostBar.append(lostTxt,lostBtn);document.body.append(lostBar);
 lostBtn.onclick=()=>exitRoom('تم الخروج من الغرفة');
+const exitBtn=el('button',null,'🚪 خروج');exitBtn.id='bExit';exitBtn.style.borderColor='rgba(244,114,182,.65)';
+exitBtn.onclick=()=>{if(confirm('هل تريد الخروج من الغرفة؟'))exitRoom('تم الخروج من الغرفة')};
+$('hud').append(exitBtn);
 const paintLost=()=>{lostTxt.textContent='⏳ '+(lostWho==='host'?'انقطع الاتصال، بنحاول نرجع':'الجهاز '+lostWho+' خرج')+' — بنستنى رجوعه ('+lostLeft+' ث)'+(lostWho==='host'&&window.__ice?' · '+window.__ice:'');lostBar.style.display='flex'};
 function lostStop(){clearInterval(lostT);clearInterval(lostRetry);lostT=lostRetry=0;lostWho=null;lostBar.style.display='none'}
 function lostCheck(n){if(lostWho!=null&&(lostWho==='host'?connected:n>lostN)){lostStop();toast('✓ رجع الاتصال')}}
