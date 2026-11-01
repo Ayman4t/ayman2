@@ -1,0 +1,36 @@
+<!DOCTYPE html>
+<html lang="ar" dir="rtl"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Contact HopDrop | تواصل معنا</title><meta name="description" content="Contact the HopDrop team: send feedback, ideas or report an issue. تواصل مع فريق HopDrop.">
+<link rel="canonical" href="https://ayman2.vercel.app/contact.html"><meta name="robots" content="index,follow">
+<meta property="og:type" content="website"><meta property="og:site_name" content="HopDrop"><meta property="og:title" content="Contact HopDrop | تواصل معنا"><meta property="og:description" content="Contact the HopDrop team: send feedback, ideas or report an issue. تواصل مع فريق HopDrop."><meta property="og:url" content="https://ayman2.vercel.app/contact.html"><meta property="og:image" content="https://ayman2.vercel.app/og-image.png">
+<meta name="twitter:card" content="summary_large_image">
+<meta name="theme-color" content="#070914"><link rel="icon" type="image/svg+xml" href="icon.svg"><link rel="apple-touch-icon" href="icon-180.png">
+<link href="https://fonts.googleapis.com/css2?family=Cairo:wght@400;700;900&display=swap" rel="stylesheet">
+<style>body{margin:0;background:#070914;color:#cfd6f0;font-family:Cairo,'Segoe UI',Tahoma,sans-serif;line-height:1.9}
+.w{max-width:760px;margin:0 auto;padding:24px 20px 60px}header{display:flex;align-items:center;gap:12px;margin-bottom:26px}
+header img{width:46px;height:46px;border-radius:14px}header a{color:#f1f5ff;font-weight:900;font-size:22px;text-decoration:none}
+h1{font-size:34px;margin:0 0 8px;background:linear-gradient(90deg,#fff,#67e8f9 55%,#a78bfa);-webkit-background-clip:text;background-clip:text;color:transparent}
+h2{color:#67e8f9;font-size:19px;margin:24px 0 4px}p{margin:6px 0}.en{direction:ltr;text-align:left;border-top:1px solid rgba(255,255,255,.14);margin-top:30px;padding-top:6px}
+a{color:#a78bfa}label{display:block;color:#f1f5ff;font-weight:700;font-size:14px}
+input,textarea{width:100%;box-sizing:border-box;font:inherit;color:#fff;background:rgba(255,255,255,.07);border:1px solid rgba(255,255,255,.16);border-radius:14px;padding:12px 14px;margin:6px 0 14px}
+button{font:inherit;font-weight:700;color:#fff;border:0;border-radius:16px;padding:13px 30px;cursor:pointer;background:linear-gradient(135deg,#6366f1,#8b5cf6)}button:disabled{opacity:.5}
+#st{margin-top:12px;min-height:26px}footer{margin-top:44px;padding-top:16px;border-top:1px solid rgba(255,255,255,.14);display:flex;gap:18px;flex-wrap:wrap;font-size:14px}footer a{color:#9aa4c7}</style></head>
+<body><div class="w"><header><img src="icon.svg" alt="HopDrop"><a href="/">HopDrop</a></header>
+<h1>تواصل معنا · Contact us</h1>
+<p>اكتب لنا ملاحظتك أو اقتراحك أو مشكلتك وسنرد عليك بالبريد. · Send us feedback, ideas or issues and we will reply by email.</p>
+<form id="cf"><label for="n">الاسم · Name</label><input id="n" name="name" required maxlength="80" autocomplete="name">
+<label for="e">البريد الإلكتروني · Email</label><input id="e" name="email" type="email" required maxlength="120" autocomplete="email" dir="ltr">
+<label for="m">رسالتك · Message</label><textarea id="m" name="message" rows="6" required maxlength="3000"></textarea>
+<input type="text" name="_honey" style="display:none" tabindex="-1" autocomplete="off">
+<button type="submit">إرسال · Send</button><div id="st" role="status"></div></form>
+<p style="margin-top:20px">أو راسلنا مباشرة · Or email us: <a href="mailto:salemaymen814@gmail.com">salemaymen814@gmail.com</a></p>
+<script>
+const f=document.getElementById('cf'),st=document.getElementById('st');
+f.addEventListener('submit',async e=>{e.preventDefault();const b=f.querySelector('button');const d=Object.fromEntries(new FormData(f));if(d._honey)return;
+b.disabled=true;st.textContent='جارٍ الإرسال… Sending…';
+try{const r=await fetch('https://formsubmit.co/ajax/salemaymen814@gmail.com',{method:'POST',headers:{'Content-Type':'application/json',Accept:'application/json'},body:JSON.stringify({name:d.name,email:d.email,message:d.message,_subject:'HopDrop contact: '+d.name,_replyto:d.email,_template:'table'})});
+const j=await r.json();if(r.ok&&(j.success===true||j.success==='true')){f.reset();st.textContent='✓ تم الإرسال، شكراً لك! Message sent, thank you!'}else throw 0}
+catch(_){st.innerHTML='تعذّر الإرسال الآن. راسلنا مباشرة · Could not send. Email us: <a href="mailto:salemaymen814@gmail.com">salemaymen814@gmail.com</a>'}
+b.disabled=false});
+</script>
+<footer><a href="/">الرئيسية · Home</a><a href="about.html">من نحن · About</a><a href="contact.html">تواصل معنا · Contact</a><span>© AymanStack</span></footer></div></body></html>
