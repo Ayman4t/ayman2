@@ -78,6 +78,22 @@ input.num{font-size:34px;letter-spacing:12px;font-weight:700;direction:ltr;text-
 #toast.on{opacity:1;transform:translateX(-50%)}
 .chk{display:flex;gap:10px;align-items:center;margin-top:14px;color:var(--muted);font-size:14px;line-height:1.6;text-align:start;cursor:pointer}.chk input{width:22px;height:22px;flex:none;margin:0;padding:0;accent-color:#8b5cf6}#clipBtn.ping{animation:pulse 1s infinite;border-color:#34d399!important}
 </style>
+<style>
+.logo2{width:72px;height:72px;border-radius:22px;display:block;margin:0 auto 12px;box-shadow:0 14px 40px rgba(124,92,255,.55),0 0 0 1px rgba(255,255,255,.18);animation:float 4s ease-in-out infinite}
+#sRole .box{position:relative;overflow:hidden}
+#sRole .box::before{content:"";position:absolute;inset:-40% -30% auto;height:70%;background:radial-gradient(closest-side,rgba(167,139,250,.28),transparent);pointer-events:none}
+#sRole .box>*{position:relative}
+.hero{margin:14px 0 2px}.hero svg{width:100%;height:auto;max-height:118px;overflow:visible}
+.smart{margin:4px 0 6px;padding:10px 14px;border-radius:16px;background:rgba(52,211,153,.08);border:1px solid rgba(52,211,153,.25);font-size:13px;line-height:1.7;text-align:start}
+.smart b{display:block;color:var(--green);font-size:14px}.smart span{color:var(--muted)}
+.smart.off{background:rgba(244,114,182,.09);border-color:rgba(244,114,182,.35)}.smart.off b{color:var(--pink)}
+#sRole .btn{position:relative;overflow:hidden}
+#sRole #bSend::after{content:"";position:absolute;top:0;bottom:0;width:40%;left:-60%;background:linear-gradient(100deg,transparent,rgba(255,255,255,.28),transparent);animation:shim 3.4s ease-in-out infinite}
+@keyframes shim{0%,55%{left:-60%}100%{left:130%}}
+#sRole .ico{display:inline-block;margin-inline-end:8px}
+#sRole .steps b{display:grid;place-items:center;width:26px;height:26px;margin-bottom:6px;border-radius:50%;background:linear-gradient(135deg,var(--cyan),var(--violet));color:#070914;font-size:14px}
+.trust{display:inline-block;margin-top:16px;padding:6px 14px;border-radius:999px;background:rgba(255,255,255,.05);border:1px solid var(--line);color:var(--muted);font-size:12.5px;line-height:1.7}
+</style>
 </head>
 <body>
 <canvas id="cv"></canvas>
@@ -87,15 +103,21 @@ input.num{font-size:34px;letter-spacing:12px;font-weight:700;direction:ltr;text-
 
 <section class="screen on" id="sRole">
   <div class="box">
-    <div class="logo"><svg width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M7 17 17 7"/><path d="M8 7h9v9"/></svg></div>
+    <img class="logo2" src="icon.svg" alt="SlingDrop">
     <h1>SlingDrop</h1>
     <div class="brand">AYMANSTACK</div>
-    <p class="sub">راجمة الملفات العابرة للشاشات<br>اقذف صورة أو ملفاً أو رابطاً من هاتف إلى هاتف بإصبعك</p>
+    <div class="hero"><svg viewBox="0 0 260 110" aria-hidden="true"><defs><linearGradient id="gt" x1="0" x2="1"><stop offset="0" stop-color="#67e8f9"/><stop offset="1" stop-color="#a78bfa"/></linearGradient><radialGradient id="go"><stop offset="0" stop-color="#fff"/><stop offset=".5" stop-color="#67e8f9"/><stop offset="1" stop-color="#a78bfa" stop-opacity="0"/></radialGradient></defs>
+<rect x="14" y="26" width="46" height="78" rx="11" fill="rgba(255,255,255,.05)" stroke="rgba(255,255,255,.35)" stroke-width="1.5"/><rect x="200" y="26" width="46" height="78" rx="11" fill="rgba(255,255,255,.05)" stroke="rgba(255,255,255,.35)" stroke-width="1.5"/>
+<path d="M37 62Q130 -18 223 62" fill="none" stroke="url(#gt)" stroke-width="2" stroke-linecap="round" stroke-dasharray="2 8"><animate attributeName="stroke-dashoffset" from="0" to="-40" dur="1.2s" repeatCount="indefinite"/></path>
+<circle r="13" fill="url(#go)"><animateMotion dur="2.6s" repeatCount="indefinite" path="M37 62Q130 -18 223 62" calcMode="spline" keyTimes="0;1" keySplines=".55 0 .45 1"/></circle>
+<circle cx="223" cy="62" fill="none" stroke="#67e8f9" stroke-width="2"><animate attributeName="r" values="4;4;26" keyTimes="0;.8;1" dur="2.6s" repeatCount="indefinite"/><animate attributeName="opacity" values="0;.9;0" keyTimes="0;.8;1" dur="2.6s" repeatCount="indefinite"/></circle></svg></div>
+    <p class="sub" style="margin-top:6px">راجمة الملفات العابرة للشاشات<br>اقذف صورة أو ملفاً أو رابطاً من هاتف إلى هاتف بإصبعك</p>
     <div class="chips"><span>🖼️ صور</span><span>📁 ملفات</span><span>🔗 روابط</span><span>📋 حافظة</span></div>
-    <button class="btn" id="bSend">إنشاء غرفة<small>ينشئ كود الربط، وكل الأجهزة (حتى 5) ترسل وتستقبل</small></button>
-    <button class="btn v" id="bRecv">الانضمام بكود<small>أدخل كود الغرفة، وسترسل وتستقبل مثل أي جهاز</small></button>
+    <div class="smart" id="smart"></div>
+    <button class="btn" id="bSend"><span class="ico">⚡</span>إنشاء غرفة<small>ينشئ كود الربط، وكل الأجهزة (حتى 5) ترسل وتستقبل</small></button>
+    <button class="btn v" id="bRecv"><span class="ico">🔑</span>الانضمام بكود<small>أدخل كود الغرفة، وسترسل وتستقبل مثل أي جهاز</small></button>
     <div class="steps"><div><b>١</b>أنشئ غرفة</div><div><b>٢</b>أدخل الكود في الأجهزة</div><div><b>٣</b>اقذف بإصبعك</div></div>
-     <p style="color:var(--muted);font-size:12.5px;margin-top:14px;line-height:1.8">🔒 الملفات تنتقل مباشرة من جهاز لجهاز، ولا تُرفع على أي خادم</p>
+    <span class="trust">🔒 الملفات تنتقل مباشرة من جهاز لجهاز، ولا تُرفع على أي خادم</span>
   </div>
 </section>
 
@@ -1043,6 +1065,14 @@ function drawFX(){
   $('bRecv').after(b);
 })();
 })();
+</script>
+<script>
+(()=>{const s=document.getElementById('smart');if(!s)return;
+const h=new Date().getHours(),g=h<5?'سهرة سعيدة 🌙':h<12?'صباح الخير ☀️':h<18?'مرحباً 👋':'مساء الخير 🌆';
+const tip=matchMedia('(pointer:coarse)').matches?'ابدأ بإنشاء غرفة على هذا الهاتف، ثم أدخل الكود في الجهاز الثاني':'تعمل من الحاسوب أيضاً: أنشئ غرفة هنا وأدخل الكود في هاتفك';
+const up=()=>{const on=navigator.onLine;s.className='smart'+(on?'':' off');s.innerHTML=on?'<b>'+g+'</b><span>'+tip+'</span>':'<b>⚠️ لا يوجد اتصال بالإنترنت</b><span>تحتاج إنترنت لإنشاء الغرفة، وبعدها تنتقل الملفات مباشرة بين الأجهزة</span>'};
+up();addEventListener('online',up);addEventListener('offline',up);
+try{const c=(new URLSearchParams(location.search).get('code')||'').trim();if(/^\d{4}$/.test(c)){document.getElementById('bRecv').click();const r=document.getElementById('room');r.value=c;r.dispatchEvent(new Event('input',{bubbles:true}))}}catch(e){}})();
 </script>
 </body>
 </html>
